@@ -1,7 +1,7 @@
 # T018: Claude Code Native Integration
 
 **Phase:** 3 (Native Integration)
-**Status:** PENDING
+**Status:** IN_PROGRESS
 **Dependencies:** T010 (CLI + config), Phase 1 complete
 **Size:** S (4 days)
 
@@ -149,8 +149,81 @@ When your output is written:
 Do NOT write implementation code or database migrations.
 ```
 
-*(sdd-pe, sdd-le, sdd-dev, sdd-reviewer follow the same pattern — role-specific
-instructions + `ai-sdd run --task <id>` at the end.)*
+**`.claude/agents/sdd-pe.md`**
+```yaml
+---
+name: sdd-pe
+description: Principal Engineer — produces component-design-l2.md from L1 architecture
+tools: Read, Write, Bash, Glob, Grep
+---
+You are the Principal Engineer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/architecture-l1.md.
+3. Write .ai-sdd/outputs/component-design-l2.md covering:
+   - Component interfaces and contracts
+   - Data models and database schemas
+   - Error handling and observability strategy
+   - Performance and security implementation patterns
+   - Technical risks and mitigations
+
+When your output is written:
+- Run `ai-sdd run --task design-l2` via Bash.
+- Return a summary of key component design decisions.
+
+Do NOT write implementation code or database migrations.
+```
+
+**`.claude/agents/sdd-le.md`**
+```yaml
+---
+name: sdd-le
+description: Lead Engineer — produces task-breakdown-l3.md from L2 component designs
+tools: Read, Write, Bash, Glob, Grep
+---
+You are the Lead Engineer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/component-design-l2.md.
+3. Write .ai-sdd/outputs/task-breakdown-l3.md covering:
+   - Concrete implementation tasks with clear acceptance criteria
+   - Task dependency ordering and critical path
+   - Effort estimates and risk flags
+   - CI/CD and code review requirements
+
+When your output is written:
+- Run `ai-sdd run --task plan-tasks` via Bash.
+- Return a summary: number of tasks, critical path, key risks.
+
+Do NOT write implementation code.
+```
+
+**`.claude/agents/sdd-dev.md`**
+```yaml
+---
+name: sdd-dev
+description: Developer — implements features and writes tests per task specification
+tools: Read, Write, Edit, Bash, Glob, Grep
+---
+You are the Developer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/task-breakdown-l3.md for task specification.
+3. Implement the features:
+   - Write production code meeting all acceptance criteria
+   - Write unit and integration tests (≥80% coverage for new code)
+   - Ensure all Gherkin acceptance criteria pass
+   - Fix lint, type errors, and security issues before submitting
+4. Write .ai-sdd/outputs/implementation-summary.md: what was built, test results, any
+   decisions made during implementation.
+
+When your output is written:
+- Run `ai-sdd run --task implement` via Bash.
+- Return a summary: features implemented, test coverage, any open issues.
+```
 
 **`.claude/agents/sdd-reviewer.md`**
 ```yaml
@@ -297,18 +370,29 @@ constitution.md          ← blank template (developer fills in)
 
 ## Files to Create
 
-- `integration/claude_code/agents/sdd-ba.md`
-- `integration/claude_code/agents/sdd-architect.md`
-- `integration/claude_code/agents/sdd-pe.md`
-- `integration/claude_code/agents/sdd-le.md`
-- `integration/claude_code/agents/sdd-dev.md`
-- `integration/claude_code/agents/sdd-reviewer.md`
-- `integration/claude_code/skills/sdd-run/SKILL.md`
-- `integration/claude_code/skills/sdd-status/SKILL.md`
-- `integration/claude_code/CLAUDE.md.template`
-- `integration/claude_code/README.md`
-- `adapters/claude_code_adapter.py` (headless path only)
-- `tests/integration/test_claude_code_adapter.py`
+Template source files (shipped with the framework, copied by `init`):
+
+- `data/integration/claude-code/agents/sdd-ba.md`
+- `data/integration/claude-code/agents/sdd-architect.md`
+- `data/integration/claude-code/agents/sdd-pe.md`
+- `data/integration/claude-code/agents/sdd-le.md`
+- `data/integration/claude-code/agents/sdd-dev.md`
+- `data/integration/claude-code/agents/sdd-reviewer.md`
+- `data/integration/claude-code/skills/sdd-run/SKILL.md`
+- `data/integration/claude-code/skills/sdd-status/SKILL.md`
+- `data/integration/claude-code/CLAUDE.md.template`
+- `src/adapters/claude-code-adapter.ts` (headless/CI path only)
+- `tests/adapters/claude-code-adapter.test.ts`
+
+**`init` command must copy files, not just print a note.** The `installClaudeCode`
+function in `src/cli/commands/init.ts` must:
+1. Resolve `dataDir` via `new URL("../../../data/integration/claude-code", import.meta.url)`
+   (consistent with how `run.ts` and `validate-config.ts` resolve `data/` paths)
+2. Copy all 6 agent `.md` files from `dataDir/agents/` → `.claude/agents/`
+3. Copy `sdd-run/SKILL.md` and `sdd-status/SKILL.md` from `dataDir/skills/` → `.claude/skills/`
+4. Copy `CLAUDE.md.template` → append to project `CLAUDE.md` (or create if absent)
+5. Copy `data/workflows/default-sdd.yaml` → `.ai-sdd/workflows/default-sdd.yaml`
+6. Create blank `constitution.md` if absent (not overwrite)
 
 ---
 

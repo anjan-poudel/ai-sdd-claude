@@ -1,0 +1,106 @@
+version: "1"
+name: default-sdd
+description: "Default Software Design & Development workflow"
+
+tasks:
+  define-requirements:
+    agent: ba
+    description: |
+      Elicit and document project requirements. Produce a requirements document
+      with functional requirements, non-functional requirements, and Gherkin
+      acceptance criteria for each requirement.
+    outputs:
+      - path: .ai-sdd/outputs/requirements.md
+        contract: requirements_doc
+
+  design-l1:
+    agent: architect
+    description: |
+      Produce the L1 system architecture document. Define system components,
+      technology stack, integration points, and key architectural decisions.
+    depends_on:
+      - define-requirements
+    outputs:
+      - path: .ai-sdd/outputs/architecture-l1.md
+        contract: architecture_l1
+
+  review-l1:
+    agent: reviewer
+    description: |
+      Review the L1 architecture document. Verify it addresses all requirements,
+      check for architectural risks, and provide GO/NO_GO decision.
+    depends_on:
+      - design-l1
+    overlays:
+      review:
+        enabled: true
+    outputs:
+      - path: .ai-sdd/outputs/review-l1.md
+        contract: review_report
+
+  design-l2:
+    agent: pe
+    description: |
+      Produce L2 component design documents. Define component interfaces,
+      data models, error handling strategy, and observability approach.
+    depends_on:
+      - review-l1
+    outputs:
+      - path: .ai-sdd/outputs/component-design-l2.md
+        contract: component_design_l2
+
+  review-l2:
+    agent: reviewer
+    description: |
+      Review the L2 component designs. Verify interfaces are correct,
+      data models are complete, and provide GO/NO_GO decision.
+    depends_on:
+      - design-l2
+    overlays:
+      review:
+        enabled: true
+    outputs:
+      - path: .ai-sdd/outputs/review-l2.md
+        contract: review_report
+
+  plan-tasks:
+    agent: le
+    description: |
+      Break down the L2 component designs into concrete implementation tasks.
+      Define acceptance criteria per task, identify dependencies, estimate effort.
+    depends_on:
+      - review-l2
+    outputs:
+      - path: .ai-sdd/outputs/task-breakdown-l3.md
+        contract: task_breakdown_l3
+
+  implement:
+    agent: dev
+    description: |
+      Implement the features per task specification. Write unit tests,
+      ensure all acceptance criteria pass, fix lint and type errors.
+    depends_on:
+      - plan-tasks
+    outputs:
+      - path: .ai-sdd/outputs/implementation-summary.md
+        contract: implementation
+    overlays:
+      policy_gate:
+        risk_tier: T1
+    max_rework_iterations: 3
+
+  review-implementation:
+    agent: reviewer
+    description: |
+      Review the implementation. Check code quality, test coverage,
+      security, and provide GO/NO_GO decision.
+    depends_on:
+      - implement
+    overlays:
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/review-implementation.md
+        contract: review_report

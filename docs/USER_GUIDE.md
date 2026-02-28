@@ -19,8 +19,9 @@
 9. [Evidence Gate](#evidence-gate)
 10. [CLI Command Reference](#cli-command-reference)
 11. [Adapter Configuration](#adapter-configuration)
-12. [Security](#security)
-13. [Troubleshooting](#troubleshooting)
+12. [Integration Guides](#integration-guides)
+13. [Security](#security)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -488,6 +489,56 @@ adapter:
 ```
 
 For testing. Always returns COMPLETED with empty outputs.
+
+---
+
+## Integration Guides
+
+Choose one integration per project UX (runtime adapter can still differ).
+
+### Using Claude Code
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool claude_code --project /path/to/project
+```
+
+2. Open the project in Claude Code.
+3. Run `/sdd-run` to execute the autonomous workflow loop.
+4. Run `/sdd-status` to check progress and pending HIL items.
+
+### Using Codex CLI
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool codex --project /path/to/project
+```
+
+2. Start `codex` from the project root (it reads `AGENTS.md`).
+3. Follow the same operator loop:
+   - `ai-sdd status --next --json`
+   - `ai-sdd run --resume`
+   - `ai-sdd hil list --json`
+4. Continue until no READY tasks remain.
+
+### Using Roo Code
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool roo_code --project /path/to/project
+```
+
+2. Start MCP server:
+
+```bash
+ai-sdd serve --mcp --port 3000
+```
+
+3. Open Roo Code and select a mode (`sdd-ba`, `sdd-architect`, `sdd-pe`, `sdd-le`, `sdd-dev`, `sdd-reviewer`).
+4. Execute tasks through MCP tools (`get_next_task`, `get_constitution`, `complete_task`, `list_hil_items`, `resolve_hil`).
 
 ---
 
