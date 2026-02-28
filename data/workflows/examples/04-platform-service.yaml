@@ -16,29 +16,23 @@ defaults:
   max_rework_iterations: 3
 
 tasks:
-  design-architecture:
+  design-l1:
     use: design-architecture
-    description: |
-      Design the system architecture for this platform service.
-      Requirements are in the constitution. Produce:
-      - Component breakdown, data flow, external dependencies
-      - Operational model, security model
-      - Component A and B definitions: responsibility, interface, contracts
 
   design-component-a:
     use: design-component
-    depends_on: [design-architecture]
+    depends_on: [design-l1]
     description: |
       Produce detailed component design for Component A
-      (as defined in design-architecture.md). Include: module structure,
+      (as defined in design-l1.md). Include: module structure,
       public interface, integration points with B, test strategy.
 
   design-component-b:
     use: design-component
-    depends_on: [design-architecture]    # parallel with design-component-a
+    depends_on: [design-l1]              # parallel with design-component-a
     description: |
       Produce detailed component design for Component B
-      (as defined in design-architecture.md). Include: module structure,
+      (as defined in design-l1.md). Include: module structure,
       public interface, integration points with A, test strategy.
 
   implement-component-a:
@@ -55,13 +49,10 @@ tasks:
       - path: .ai-sdd/outputs/impl-component-b-notes.md
         contract: implementation
 
-  review-implementation:
+  review-component-a:              # focused review of Component A only
     use: review-implementation
-    depends_on: [implement-component-a, implement-component-b]
-    description: |
-      Review both components together as an integrated system.
-      1. Each component matches its design (interface, module structure)
-      2. Integration contracts are honored by both sides
-      3. No unplanned coupling between components
-      4. Error handling consistent across both components
-      Issue a single GO/NO_GO. List findings per component.
+    depends_on: [implement-component-a]
+
+  review-component-b:              # focused review of Component B only — parallel with review-component-a
+    use: review-implementation
+    depends_on: [implement-component-b]

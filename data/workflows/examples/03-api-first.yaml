@@ -40,7 +40,7 @@ tasks:
     depends_on: [design-api]
 
   review:
-    use: review-implementation
+    use: standard-review          # custom description — named-stage template not appropriate
     depends_on: [implement]
     description: |
       Review implementation against the OpenAPI spec.

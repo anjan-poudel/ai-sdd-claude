@@ -158,6 +158,54 @@ contexts.
 | `security-test` | Security testing pass | `reviewer` | `review_report` | off | T1 |
 | `final-sign-off` | T2 mandatory production gate | `reviewer` | `review_report` | off | T2 |
 
+**Task ID naming convention:**
+Task IDs should reflect the task's **position in the workflow**, not the template name.
+
+- ✓ `design-l1: use: design-architecture` — ID reflects workflow phase (L1 design)
+- ✗ `design-architecture: use: design-architecture` — ID mirrors template name; redundant
+- ✓ `define-requirements: use: define-requirements` — acceptable when the workflow step
+  name and the template name are genuinely the same concept (requirements definition)
+
+The test: would a different workflow use a different ID for the same template? If yes,
+the ID should be workflow-specific. `design-l1` / `design-l2` convey phase; `define-requirements`
+and `plan-tasks` are step names that carry their own meaning regardless of workflow.
+
+**When to omit the description:**
+Omit `description` when the template default is sufficient and the agent can get all
+workflow-specific context from `constitution.md`. Only add a description when the task
+needs LLM instructions that go beyond what the template provides — e.g. which specific
+component to design, a compliance-specific checklist, or domain-specific review criteria.
+
+**Which template to use:**
+- Use a **named-stage template** (`review-l1`, `review-implementation`, etc.) when the
+  template's default description fits — you get agent, overlays, and LLM instructions
+  with no extra configuration.
+- Use **`standard-review`** or **`standard-implement`** when you need a custom description.
+  These provide agent + overlays only, leaving LLM instructions entirely to the workflow.
+  Overriding a named-stage template's description defeats the purpose; use the generic form.
+
+`depends_on` is always per-workflow — never part of a template.
+
+**Parallel components → parallel reviews:** When a workflow has N parallel implementation
+tasks (e.g. `implement-component-a`, `implement-component-b`), give each its own review
+task rather than a single combined review. Each review is smaller, more focused, and can
+run in parallel:
+
+```yaml
+  review-component-a:
+    use: review-implementation
+    depends_on: [implement-component-a]    # focused: Component A only
+
+  review-component-b:
+    use: review-implementation
+    depends_on: [implement-component-b]    # focused: Component B only, runs in parallel
+```
+
+A combined review of N components in one task is harder to complete, harder to give
+structured feedback on, and harder to rework. Split at the same granularity as the
+implementation tasks. Use `standard-review` with a custom description if an integration
+check across all components is needed as a final gate.
+
 ### Template files
 
 **`define-requirements.yaml`**

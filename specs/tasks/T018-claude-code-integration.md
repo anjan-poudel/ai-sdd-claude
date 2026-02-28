@@ -47,7 +47,7 @@ sdd-run skill (context: fork — isolated subagent context):
   5. Asks: "Continue to next task?"
 
 Headless / CI:
-  ai-sdd engine → ClaudeCodeAdapter → subprocess `claude --print --prompt-file`
+  ai-sdd engine → ClaudeCodeAdapter → Bun.spawn(['claude', '--print', '--output-format', 'json', <brief>])
 ```
 
 ---
@@ -89,8 +89,9 @@ Feature: Claude Code native integration
   Scenario: Headless adapter for CI
     Given ai-sdd running in CI with adapter: claude_code
     When a task is dispatched
-    Then ClaudeCodeAdapter calls `claude --print --prompt-file <path>` as a subprocess
-    And captures the output as the task result
+    Then ClaudeCodeAdapter calls Bun.spawn with args ["claude", "--print", "--output-format", "json", <brief>]
+    And parses the JSON output as the task result
+    And falls back to raw-text handover_state if output is not valid JSON
 ```
 
 ---
@@ -328,18 +329,47 @@ See `constitution.md` for project purpose, rules, standards, and the artifact ma
 
 ### 5. ClaudeCodeAdapter (headless/CI only)
 
-```python
-class ClaudeCodeAdapter(RuntimeAdapter):
-    """Headless/CI use only. Interactive sessions use /sdd-run skill + subagents."""
-    def dispatch(self, task: Task, context: AgentContext,
-                 operation_id: str, attempt_id: str) -> TaskResult:
-        prompt_path = self._write_prompt_file(task, context)
-        result = subprocess.run(
-            ["claude", "--print", "--prompt-file", str(prompt_path)],
-            capture_output=True, text=True, timeout=self.timeout_seconds
-        )
-        return self._parse_result(result, task)
+**File:** `src/adapters/claude-code-adapter.ts`
+
+Interactive sessions use the `/sdd-run` skill + subagents — the adapter is only for
+headless/CI execution where the engine drives the workflow programmatically.
+
+**Dispatch modes:**
+
+- `delegation` (default) — engine sends a lightweight task brief; the Claude CLI agent
+  manages its own context by reading `constitution.md` and artifacts via its tools:
+  ```
+  Task ID: <id>
+  Operation ID: <op>
+
+  Description: <task.description>
+
+  Expected outputs:
+    - <output.path>
+
+  When complete, run: ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp>
+  ```
+
+- `direct` — engine builds a full prompt (constitution + task description + operation ID)
+  and sends it to the CLI. Used when the Claude CLI agent has no access to the project
+  filesystem.
+
+**CLI invocation:**
 ```
+claude --print --output-format json <brief>
+```
+`--print` = non-interactive, `--output-format json` = structured output for token usage parsing.
+
+**Output parsing:**
+- If JSON: extract `outputs`, `handover_state`, token usage from `usage.input_tokens`/`usage.output_tokens`
+- If non-JSON: `status: COMPLETED`, `handover_state: { raw_output: <stdout> }`
+
+**Error handling:**
+- Exit code ≠ 0 → `ToolError`
+- Timeout exceeded → `TimeoutError`
+- `claude` not on PATH → caught at `healthCheck()` time; falls back to `MockAdapter` in tests
+
+**Defaults:** `dispatch_mode: "delegation"`, `timeout_ms: 300_000` (5 min)
 
 ---
 
@@ -398,13 +428,21 @@ function in `src/cli/commands/init.ts` must:
 
 ## Test Strategy
 
-- Unit tests: `ClaudeCodeAdapter` writes correct prompt file format.
-- Unit tests: `ai-sdd init --tool claude_code` copies all agent + skill files.
-- Integration test: `/sdd-run` skill spawns correct subagent per task type.
-- Integration test: HIL item surfaced inline; resolved without manual CLI command.
-- Manual validation: Run full BA → Architect workflow in Claude Code — zero manual `ai-sdd` commands typed.
+**`tests/adapters/claude-code-adapter.test.ts`** (unit — no real CLI invocation):
+- `delegation` mode brief contains task_id, operation_id, description, output paths, complete-task command
+- `direct` mode prompt contains constitution, task description, operation_id
+- `dispatch_mode` defaults to `"delegation"`
+- `parseOutput` correctly extracts status/outputs/tokens from JSON
+- `parseOutput` falls back to `{ raw_output }` for non-JSON stdout
+- `healthCheck` returns false when `claude` not on PATH
+
+**`tests/adapters/mock-adapter.test.ts`** (existing):
+- Covers retry logic in the base adapter (shared by all adapters including ClaudeCodeAdapter)
+
+**Manual validation:**
+- Run full BA → Architect workflow in Claude Code with `/sdd-run` — zero manual `ai-sdd` commands typed.
 
 ## Rollback/Fallback
 
-- If `claude` binary not in PATH: `ClaudeCodeAdapter` raises clear error; falls back to MockAdapter in tests.
-- If agent or skill files already exist: `ai-sdd init` prompts before overwriting.
+- If `claude` binary not on PATH: `healthCheck()` returns false; tests use `MockAdapter`.
+- If agent or skill files already exist: `ai-sdd init` skips without overwriting (idempotent).

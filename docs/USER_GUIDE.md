@@ -213,8 +213,24 @@ Output paths use `{{task_id}}` substitution: a task named `design-l1` gets
 `.ai-sdd/outputs/design-l1.md`, `design-component-a` gets
 `.ai-sdd/outputs/design-component-a.md`, etc.
 
-A task using `use:` must still provide `description`. It may omit `agent`, `outputs`,
-and `overlays` (all inherited from the template, then merged with workflow defaults).
+A task using `use:` may omit `description` (uses template default), `agent`, `outputs`,
+and `overlays` (all inherited from the template, merged with workflow defaults).
+
+`depends_on` is always per-workflow — never part of a template.
+
+**Parallel components → parallel reviews.** When a workflow has N parallel implementation
+tasks, give each its own review task rather than a single combined review. Each review is
+smaller, more focused, and can run in parallel with the others:
+
+```yaml
+  review-component-a:
+    use: review-implementation
+    depends_on: [implement-component-a]
+
+  review-component-b:
+    use: review-implementation
+    depends_on: [implement-component-b]    # parallel with review-component-a
+```
 
 **Override examples:**
 

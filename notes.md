@@ -3,14 +3,14 @@
 ```shell
 export ANTHROPIC_AUTH_TOKEN=ollama
 export ANTHROPIC_BASE_URL=http://localhost:11434
-claude --model ollama/glm-4.7-flash
+claude --model glm-4.7-flash
 ```
 
 ### Claude with Beast
 ```shell
 export ANTHROPIC_AUTH_TOKEN=ollama
 export ANTHROPIC_BASE_URL=http://beast:11434
-claude --model ollama/glm-4.7-flash
+claude --model glm-4.7-flash
 ```
 
 
