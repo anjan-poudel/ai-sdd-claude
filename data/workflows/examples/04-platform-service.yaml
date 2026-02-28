@@ -1,154 +1,67 @@
 # Workflow: Platform / Infrastructure Service
 #
 # WHO:    Platform or infrastructure teams building shared services
-#         (auth service, data pipeline, internal SDK, CLI tool)
-# WHEN:   Greenfield or significant rework of a shared component;
-#         architectural correctness matters more than speed
-# AGENTS: architect → pe → dev (×2 parallel) → reviewer
-# HIL:    on after architecture (platform lead reviews); off elsewhere
-# GATES:  T1 throughout; no T2 (internal service, not customer-facing regulated)
-#
-# Flow:
-#   design-architecture
-#       ↓  (HIL: platform lead approves)
-#   design-component-a  ──┐  (parallel: two components designed simultaneously)
-#   design-component-b  ──┤
-#                          ↓
-#   implement-component-a ──┐  (parallel: two devs work simultaneously)
-#   implement-component-b ──┤
-#                            ↓
-#   review               (single reviewer sees both components together)
-#
-# Notes:
-# - No BA: platform teams own their own requirements (in the constitution)
-# - Parallel component design speeds up multi-component services
-# - Parallel implementation means both components land together for holistic review
-# - Reviewer sees both components in the same review pass (integration)
+# WHEN:   Greenfield or significant rework of a shared component
+# AGENTS: architect → pe (×2 parallel) → dev (×2 parallel) → reviewer
+# HIL:    on after architecture (platform lead reviews)
+# GATES:  T1 throughout
 
 version: "1"
 name: platform-service
 description: "Platform/infra service: architecture → parallel component design → parallel impl → review"
 
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T1 }
+  max_rework_iterations: 3
+
 tasks:
   design-architecture:
-    agent: architect
+    use: design-architecture
     description: |
       Design the system architecture for this platform service.
-      The requirements are in the constitution. Produce:
-      - Component breakdown (what are the top-level components and their boundaries)
-      - Data flow diagram (how data moves between components)
-      - External dependencies (what does this service depend on)
-      - Operational model (deployment unit, scaling approach, failure modes)
-      - Security model (auth, secrets management, network policy)
-      - Component A definition: responsibility, interface, contracts
-      - Component B definition: responsibility, interface, contracts
-      Explicitly define what is in and out of scope for this service.
-    outputs:
-      - path: .ai-sdd/outputs/architecture.md
-        contract: architecture_l1
-    overlays:
-      hil:
-        enabled: true          # Platform lead reviews architecture before components start
-      policy_gate:
-        risk_tier: T0
+      Requirements are in the constitution. Produce:
+      - Component breakdown, data flow, external dependencies
+      - Operational model, security model
+      - Component A and B definitions: responsibility, interface, contracts
 
   design-component-a:
-    agent: pe
-    description: |
-      Produce the detailed component design for Component A as defined in architecture.md.
-      Include:
-      - Module structure and file layout
-      - Public interface (function signatures, types, error types)
-      - Internal state management approach
-      - Integration points with Component B (contracts)
-      - Test strategy: what to unit test, what to integration test
+    use: design-component
     depends_on: [design-architecture]
-    outputs:
-      - path: .ai-sdd/outputs/design-component-a.md
-        contract: component_design_l2
-    overlays:
-      hil:
-        enabled: false
-      policy_gate:
-        risk_tier: T0
+    description: |
+      Produce detailed component design for Component A
+      (as defined in design-architecture.md). Include: module structure,
+      public interface, integration points with B, test strategy.
 
   design-component-b:
-    agent: pe
-    description: |
-      Produce the detailed component design for Component B as defined in architecture.md.
-      Include:
-      - Module structure and file layout
-      - Public interface (function signatures, types, error types)
-      - Internal state management approach
-      - Integration points with Component A (contracts)
-      - Test strategy: what to unit test, what to integration test
+    use: design-component
     depends_on: [design-architecture]    # parallel with design-component-a
-    outputs:
-      - path: .ai-sdd/outputs/design-component-b.md
-        contract: component_design_l2
-    overlays:
-      hil:
-        enabled: false
-      policy_gate:
-        risk_tier: T0
+    description: |
+      Produce detailed component design for Component B
+      (as defined in design-architecture.md). Include: module structure,
+      public interface, integration points with A, test strategy.
 
   implement-component-a:
-    agent: dev
-    description: |
-      Implement Component A per the design in design-component-a.md.
-      - Follow the exact public interface defined in the design
-      - Write unit tests for all public functions
-      - Write integration tests for the Component B interface contract
-      - Ensure the module can be independently imported/used
-    depends_on: [design-component-a, design-component-b]  # needs B's interface to integrate
+    use: standard-implement
+    depends_on: [design-component-a, design-component-b]
     outputs:
       - path: .ai-sdd/outputs/impl-component-a-notes.md
-    overlays:
-      hil:
-        enabled: false
-      policy_gate:
-        risk_tier: T1
-    max_rework_iterations: 3
+        contract: implementation
 
   implement-component-b:
-    agent: dev
-    description: |
-      Implement Component B per the design in design-component-b.md.
-      - Follow the exact public interface defined in the design
-      - Write unit tests for all public functions
-      - Write integration tests for the Component A interface contract
-      - Ensure the module can be independently imported/used
-    depends_on: [design-component-a, design-component-b]  # needs A's interface to integrate
+    use: standard-implement
+    depends_on: [design-component-a, design-component-b]
     outputs:
       - path: .ai-sdd/outputs/impl-component-b-notes.md
-    overlays:
-      hil:
-        enabled: false
-      policy_gate:
-        risk_tier: T1
-    max_rework_iterations: 3
+        contract: implementation
 
-  review:
-    agent: reviewer
+  review-implementation:
+    use: review-implementation
+    depends_on: [implement-component-a, implement-component-b]
     description: |
       Review both components together as an integrated system.
-      Architecture conformance:
       1. Each component matches its design (interface, module structure)
-      2. Component integration contracts are honored by both sides
+      2. Integration contracts are honored by both sides
       3. No unplanned coupling between components
-      Quality:
-      4. Test coverage is adequate for a shared platform service
-      5. Error handling is consistent across both components
-      6. No hardcoded config, secrets, or environment-specific values
-      Issue a single GO/NO_GO covering both components. List findings per component.
-    depends_on: [implement-component-a, implement-component-b]
-    overlays:
-      hil:
-        enabled: false
-      review:
-        enabled: true
-      policy_gate:
-        risk_tier: T1
-    outputs:
-      - path: .ai-sdd/outputs/review.md
-        contract: review_report
+      4. Error handling consistent across both components
+      Issue a single GO/NO_GO. List findings per component.

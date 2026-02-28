@@ -1,0 +1,16 @@
+name: security-design-review
+agent: reviewer
+description: |
+  Security-focused design review. Check: STRIDE threat model completeness,
+  all data flows encrypted in transit, PII identified with handling specified,
+  input validation specified for all external inputs, audit logging covers
+  security-relevant events, secrets management sound, least-privilege auth,
+  compliance requirements traceable to design decisions.
+  Issue SECURITY-GO or SECURITY-NO_GO.
+overlays:
+  hil:         { enabled: false }
+  review:      { enabled: true }
+  policy_gate: { risk_tier: T1 }
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

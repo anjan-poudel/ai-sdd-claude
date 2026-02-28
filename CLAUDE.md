@@ -25,12 +25,14 @@ No build step — Bun runs TypeScript directly. Import paths use `.ts` extension
 
 ```
 src/
-  types/index.ts          # canonical enums, interfaces (TaskStatus, VALID_TRANSITIONS, etc.)
+  types/index.ts          # canonical enums, interfaces (TaskStatus, VALID_TRANSITIONS,
+                          # WorkflowDefaults, ENGINE_TASK_DEFAULTS, etc.)
   dsl/                    # recursive-descent parser + evaluator (no eval())
   core/
     engine.ts             # workflow orchestrator — dispatches tasks, manages concurrency
     state-manager.ts      # atomic state persistence (tmp+rename pattern)
-    workflow-loader.ts    # Kahn's topological sort + cycle detection
+    workflow-loader.ts    # Kahn's topological sort + cycle detection; resolves
+                          # engine defaults → workflow defaults → use: → task inline
     agent-loader.ts       # AgentRegistry with YAML `extends` inheritance
     context-manager.ts    # assembles prompts for direct-mode dispatch
     hooks.ts              # pre/post task hook registry
@@ -42,6 +44,18 @@ src/
   observability/          # event emitter, cost tracker, log sanitizer
   artifacts/              # registry, validator, compatibility
   integration/mcp-server/ # MCP server implementation
+
+data/
+  workflows/              # default-sdd.yaml + examples/
+  agents/defaults/        # 6 default agent YAMLs
+  task-library/           # 12 reusable templates (use: targets):
+                          #   Role primitives: define-requirements, design-architecture,
+                          #     design-component, plan-tasks, standard-implement, standard-review
+                          #   Named stages: review-l1, review-l2, review-implementation,
+                          #     security-design-review, security-test, final-sign-off
+  integration/
+    claude-code/          # agent .md files + skill SKILL.md files (copied by init)
+  artifacts/schema.yaml
 ```
 
 ## Key Invariants
@@ -64,6 +78,10 @@ Paired and Review are mutually exclusive. T2 risk tier always triggers HIL.
 **`complete-task` is the single atomic transaction boundary** (`src/cli/commands/complete-task.ts`):
 path-allowlist → sanitize → contract-validate → write → state-update → manifest-update.
 MCP server delegates to this command; it never writes files directly.
+
+**Workflow defaults + task library** — `workflow-loader.ts` applies a 4-layer merge per task: `ENGINE_TASK_DEFAULTS` → workflow `defaults:` block → task library template (`use:`) → task inline. Engine built-ins: `hil.enabled=true`, `policy_gate.risk_tier=T1`, `max_rework_iterations=3`. Overlay keys merge individually (not whole-object replace). `{{task_id}}` in library output paths is substituted at load time.
+
+**Workflow lookup order** (first found wins): `.ai-sdd/workflow.yaml` → `.ai-sdd/workflows/default-sdd.yaml` → bundled framework default.
 
 **Expression DSL** — all `exit_conditions` and gate expressions go through `src/dsl/parser.ts` + `evaluator.ts`. No `eval()` or `exec()` anywhere in the codebase.
 

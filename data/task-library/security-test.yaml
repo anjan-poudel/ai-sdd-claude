@@ -1,0 +1,19 @@
+name: security-test
+agent: reviewer
+description: |
+  Security testing pass on the implementation. Test:
+  - SQL injection: parameterised queries used everywhere, no string concat
+  - Input validation: malformed/oversized/special-char inputs return 400
+  - Auth bypass: unauthenticated requests return 401/403
+  - PII in logs: confirm PII is masked in all log entries
+  - Secrets in output: scan all output files for secret patterns
+  - Audit log completeness: each auditable event produces a log entry
+  - Error leakage: errors don't expose stack traces or internals
+  Issue SECURITY-GO or SECURITY-NO_GO per category.
+overlays:
+  hil:         { enabled: false }
+  review:      { enabled: true }
+  policy_gate: { risk_tier: T1 }
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

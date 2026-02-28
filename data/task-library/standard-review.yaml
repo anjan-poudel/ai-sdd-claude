@@ -1,0 +1,12 @@
+name: standard-review
+agent: reviewer
+description: |
+  Review the task output against its acceptance criteria and issue a
+  GO or NO_GO decision with specific, actionable findings.
+overlays:
+  hil:         { enabled: false }   # reviewer is the evaluator; no separate HIL needed
+  review:      { enabled: true }    # enable the agentic review loop
+  policy_gate: { risk_tier: T1 }    # verification: tests + lint required
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

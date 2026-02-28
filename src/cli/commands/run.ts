@@ -34,15 +34,24 @@ export function registerRunCommand(program: Command): void {
 
       const config = loadProjectConfig(projectPath);
 
-      // Load workflow
+      // Load workflow — search order:
+      //   1. .ai-sdd/workflow.yaml        (explicit single-file, backward compat)
+      //   2. .ai-sdd/workflows/default-sdd.yaml  (copied by ai-sdd init)
+      //   3. bundled framework default
       const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
-      const defaultWorkflowPath = resolve(
+      const initCopiedPath = resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml");
+      const bundledDefaultPath = resolve(
         new URL("../../../data/workflows/default-sdd.yaml", import.meta.url).pathname,
       );
-      const wfPath = existsSync(workflowPath) ? workflowPath : defaultWorkflowPath;
+      const wfPath = existsSync(workflowPath)  ? workflowPath
+                   : existsSync(initCopiedPath) ? initCopiedPath
+                   : existsSync(bundledDefaultPath) ? bundledDefaultPath
+                   : null;
 
-      if (!existsSync(wfPath)) {
-        console.error(`No workflow.yaml found. Create .ai-sdd/workflow.yaml or run: ai-sdd init`);
+      if (!wfPath) {
+        console.error(
+          `No workflow found. Create .ai-sdd/workflow.yaml or run: ai-sdd init`,
+        );
         process.exit(1);
       }
 

@@ -1,0 +1,12 @@
+name: standard-implement
+agent: dev
+description: |
+  Implement the feature per the task specification. Write unit tests,
+  ensure all acceptance criteria pass, fix lint and type errors.
+overlays:
+  hil:         { enabled: false }   # implementation is not a decision gate
+  policy_gate: { risk_tier: T1 }    # verification: tests + lint required
+max_rework_iterations: 3
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}-notes.md"
+    contract: implementation

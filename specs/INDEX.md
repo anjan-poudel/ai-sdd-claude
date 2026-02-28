@@ -47,6 +47,7 @@
 | [T012](tasks/T012-expression-dsl.md) | Expression DSL + Safe Evaluator | S (4d) | New |
 | [T013](tasks/T013-artifact-contract.md) | Artifact Contract + I/O Schema | S (4d) | New |
 | [T016](tasks/T016-constitution-artifact-manifest.md) | Constitution Artifact Manifest Writer | XS (2d) | New |
+| [T022](tasks/T022-workflow-defaults-and-task-library.md) | Workflow Defaults + Task Library | S (3d) | **New**: convention over config; `defaults:`, `use:`, engine built-in defaults |
 
 ## Tasks — Phase 2: Overlay Suite
 
@@ -79,6 +80,7 @@
 | [T012](tasks/T012-expression-dsl.md) | Expression DSL + Safe Evaluator | S (4d) | Formal grammar; no `eval()`; golden corpus |
 | [T013](tasks/T013-artifact-contract.md) | Artifact Contract + I/O Schema | S (4d) | Versioned typed task outputs; compatibility checks |
 | [T016](tasks/T016-constitution-artifact-manifest.md) | Constitution Artifact Manifest | XS (2d) | Engine writes artifact index into constitution; agents pull via native tools |
+| [T022](tasks/T022-workflow-defaults-and-task-library.md) | Workflow Defaults + Task Library | S (3d) | Convention over config; `defaults:` block; `use:` task library; engine built-ins |
 
 *(T011 enhanced: add `run_id`, `task_run_id`, cost/token metrics — update inherited T011)*
 
@@ -115,7 +117,8 @@ T003 ──┘              │
                       ├──► T011 (Observability)
                       ├──► T012 (Expression DSL)  ← required before loops run
                       ├──► T013 (Artifact Contract)
-                      └──► T016 (Manifest Writer)
+                      ├──► T016 (Manifest Writer)
+                      └──► T022 (Workflow Defaults + Task Library)
 ```
 
 T000 is the pre-implementation gate — verified against PRE-IMPLEMENTATION-GATE.md.
