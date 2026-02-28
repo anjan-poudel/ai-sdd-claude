@@ -1,0 +1,55 @@
+# Workflow: Quick Fix / Hotfix
+#
+# WHO:    Solo dev or small team with a known bug to fix
+# WHEN:   Bug is already understood; no design needed; just fix + verify
+# AGENTS: dev → reviewer
+# HIL:    off (speed is the priority)
+# GATES:  T1 (tests must pass before review)
+#
+# Flow:
+#   implement-fix → review-fix
+#
+# Notes:
+# - Skips requirements and architecture entirely — you already know what to fix
+# - reviewer gives GO/NO_GO; NO_GO sends dev back for another iteration
+# - max 2 rework iterations before escalation
+# - Disable HIL globally for this workflow; it's a hotfix
+
+version: "1"
+name: quickfix
+description: "Minimal hotfix workflow: implement a known fix, then verify it"
+
+tasks:
+  implement-fix:
+    agent: dev
+    description: |
+      Fix the reported bug. Read the constitution for context on the affected
+      component. Write the fix, update or add unit tests that cover the bug
+      scenario, ensure existing tests still pass.
+    outputs:
+      - path: .ai-sdd/outputs/fix-summary.md
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T1       # tests + lint required before proceeding
+    max_rework_iterations: 2
+
+  verify-fix:
+    agent: reviewer
+    description: |
+      Review the fix. Confirm:
+      1. The root cause is correctly identified and addressed
+      2. Tests cover the failure scenario (regression test present)
+      3. No unintended side effects in adjacent code
+      4. Fix is minimal — does not refactor unrelated code
+      Provide GO (merge-ready) or NO_GO (with specific items to address).
+    depends_on: [implement-fix]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+    outputs:
+      - path: .ai-sdd/outputs/fix-review.md
+        contract: review_report

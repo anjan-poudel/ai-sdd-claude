@@ -1,0 +1,260 @@
+# Workflow: Regulated / Enterprise — Full Evidence Gates + HIL + Paired Challenger
+#
+# WHO:    Teams in regulated domains (fintech, healthcare, security-critical infra)
+#         or enterprises with formal change management processes
+# WHEN:   Any change that requires an audit trail, formal sign-offs, and
+#         evidence of correctness at each phase
+# AGENTS: All 6 agents + paired challenger on implementation
+# HIL:    T2 gates at requirements, architecture, and pre-deploy sign-off
+#         (triggers mandatory human approval — cannot be bypassed)
+# GATES:  T0 → T0 → T1 → T1 → T2 (final gate has human sign-off)
+# CONFIDENCE: enabled throughout (advisory — logged in gate reports)
+#
+# Flow:
+#   define-requirements         ← T2 HIL: compliance officer + product owner
+#       ↓
+#   design-l1                   ← T2 HIL: architecture review board
+#       ↓
+#   design-l2
+#       ↓
+#   security-review             ← dedicated security pass on the design (parallel with...)
+#   design-review               ← ...standard design review (parallel)
+#       ↓ (both must GO)
+#   plan-tasks
+#       ↓
+#   implement                   ← T1 gate + paired challenger (driver+challenger pattern)
+#       ↓
+#   security-test               ← dedicated security testing pass
+#       ↓
+#   final-sign-off              ← T2 HIL: tech lead + security officer (mandatory)
+#
+# Notes:
+# - T2 risk tier on a task ALWAYS triggers HIL, regardless of any other config
+# - Paired overlay runs a "challenger" agent on the same task and flags divergence
+# - security-review and design-review run in PARALLEL (both depend on design-l2)
+# - implement depends on BOTH review tasks (must both GO before coding starts)
+# - final-sign-off is a pure HIL gate — no agent output, just human approval
+# - All gate reports are written to .ai-sdd/outputs/ for audit trail
+
+version: "1"
+name: regulated-enterprise
+description: "Full regulated workflow with T2 gates, evidence collection, and audit trail"
+
+tasks:
+  define-requirements:
+    agent: ba
+    description: |
+      Produce a formal requirements specification suitable for regulatory review.
+      Required sections:
+      - Scope: what is changing and why (with change request or ticket reference)
+      - Stakeholders: who is affected, who must approve
+      - Functional requirements (numbered FR-001, FR-002, ...)
+      - Non-functional requirements (NFR-001, ...) including security, privacy, audit
+      - Compliance requirements: which regulations apply (GDPR, SOC2, PCI-DSS, etc.)
+        and how this change addresses them
+      - Data classification: what data this feature touches and its sensitivity level
+      - Gherkin acceptance criteria for each functional requirement
+      - Explicit out-of-scope items
+      - Traceability: map each requirement to the business need or regulation it satisfies
+    outputs:
+      - path: .ai-sdd/outputs/requirements.md
+        contract: requirements_doc
+    overlays:
+      hil:
+        enabled: true
+      policy_gate:
+        risk_tier: T2              # Compliance officer + PO must approve before design
+    max_rework_iterations: 3
+
+  design-l1:
+    agent: architect
+    description: |
+      Produce the L1 architecture with explicit security and compliance considerations.
+      Standard sections (see greenfield workflow) plus:
+      - Threat model: assets, threats, mitigations for each threat
+      - Data residency: where data is stored and processed (relevant for GDPR etc.)
+      - Audit logging design: what events are logged, format, retention
+      - Access control model: who can access what, how access is controlled
+      - Encryption model: data at rest, data in transit, key management
+      - Compliance mapping: how each NFR is satisfied by architectural decisions
+      - DR/BCP: recovery time objective, recovery point objective
+    depends_on: [define-requirements]
+    outputs:
+      - path: .ai-sdd/outputs/architecture-l1.md
+        contract: architecture_l1
+    overlays:
+      hil:
+        enabled: true
+      policy_gate:
+        risk_tier: T2              # Architecture review board must approve
+    max_rework_iterations: 2
+
+  design-l2:
+    agent: pe
+    description: |
+      Produce L2 component design. In addition to standard component design:
+      - Input validation: every external input is validated and sanitized
+      - Output encoding: every response is properly encoded (prevent injection)
+      - Secrets management: how secrets are injected (never hardcoded, never logged)
+      - PII handling: which fields contain PII, how they are masked in logs
+      - Audit events: precise schema for each audit log entry this component emits
+      - Error handling: what errors are exposed to callers vs logged internally
+    depends_on: [design-l1]
+    outputs:
+      - path: .ai-sdd/outputs/component-design-l2.md
+        contract: component_design_l2
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T0
+
+  security-design-review:
+    agent: reviewer
+    description: |
+      SECURITY-FOCUSED design review. Read architecture-l1.md and component-design-l2.md.
+      Focus exclusively on security and compliance — not general quality.
+      Check:
+      1. Threat model is complete: STRIDE analysis or equivalent
+      2. All data flows are encrypted in transit
+      3. PII is identified and handling is specified in L2
+      4. Input validation is specified for all external inputs
+      5. Audit logging covers all security-relevant events
+      6. Secrets management approach is sound (no hardcoded, no logged)
+      7. Auth model satisfies least-privilege principle
+      8. Compliance requirements from requirements.md are traceable to design decisions
+      Issue SECURITY-GO or SECURITY-NO_GO. No_Go findings must be addressed before
+      implementation begins.
+    depends_on: [design-l2]    # parallel with design-review
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/security-design-review.md
+        contract: review_report
+
+  design-review:
+    agent: reviewer
+    description: |
+      Standard design review — focus on technical correctness, not security
+      (security-design-review runs in parallel and covers that angle).
+      Check:
+      1. L2 components align with and fully implement L1 architecture
+      2. All interfaces are well-specified on both sides
+      3. Database schema is sound, normalized, indexed
+      4. Observability design is complete
+      5. Error handling is consistent
+      6. Test strategy is adequate
+      Issue GO or NO_GO. implementation may not start until both this review
+      and security-design-review are GO.
+    depends_on: [design-l2]    # parallel with security-design-review
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/design-review.md
+        contract: review_report
+
+  plan-tasks:
+    agent: le
+    description: |
+      Produce the implementation task breakdown.
+      In addition to standard task breakdown:
+      - Flag tasks that touch security controls with [SECURITY] tag
+      - Flag tasks that touch PII handling with [PII] tag
+      - Flag tasks that implement audit logging with [AUDIT] tag
+      - Specify for each task: which compliance requirement it satisfies
+      - Order: infrastructure → security controls → business logic → audit logging → tests
+    depends_on: [security-design-review, design-review]   # both reviews must GO
+    outputs:
+      - path: .ai-sdd/outputs/task-breakdown-l3.md
+        contract: task_breakdown_l3
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T0
+
+  implement:
+    agent: dev
+    description: |
+      Implement all tasks in task-breakdown-l3.md.
+      Special attention to [SECURITY], [PII], and [AUDIT] tagged tasks:
+      - Security controls must be implemented exactly as designed — no shortcuts
+      - PII fields must be masked in all logs; add a test that proves this
+      - Audit log entries must match the schema from L2 design exactly
+      After all tasks:
+      - All Gherkin ACs pass
+      - No secrets in code, config files, or test fixtures
+      - Test coverage ≥ 85% on new code (higher bar for regulated code)
+    depends_on: [plan-tasks]
+    outputs:
+      - path: .ai-sdd/outputs/implementation-notes.md
+        contract: implementation
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T1
+      confidence:
+        enabled: true
+        threshold: 0.85
+      paired:
+        enabled: true            # Challenger agent re-implements and flags divergence
+    max_rework_iterations: 5
+
+  security-test:
+    agent: reviewer
+    description: |
+      Security testing pass on the implementation (DAST/SAST mindset).
+      Test:
+      1. SQL injection: parameterised queries used everywhere, no string concat
+      2. Input validation: send malformed/oversized/special-char inputs; expect 400
+      3. Auth bypass: attempt to access resources without valid auth; expect 401/403
+      4. PII in logs: trigger operations involving PII; confirm logs are masked
+      5. Secrets in output: scan all output files for secret patterns
+      6. Audit log completeness: trigger each auditable event; confirm log entry written
+      7. Error message leakage: trigger errors; confirm no stack traces or internals exposed
+      Issue SECURITY-GO or SECURITY-NO_GO per test category.
+    depends_on: [implement]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/security-test-report.md
+        contract: review_report
+
+  final-sign-off:
+    agent: reviewer
+    description: |
+      Produce the final change summary document for human sign-off.
+      This is the document that tech lead and security officer will read before
+      approving the change to proceed to production.
+      Include:
+      - Change summary: what was built, what changed
+      - Requirements traceability: FR/NFR → implementation → test evidence
+      - Security posture: summary of security design review + security test results
+      - Open items: any known issues, deferred items, monitoring to watch
+      - Rollback plan: how to revert if the change causes issues in production
+      - Compliance checklist: confirm each applicable compliance item is satisfied
+    depends_on: [security-test]
+    outputs:
+      - path: .ai-sdd/outputs/change-summary.md
+    overlays:
+      policy_gate:
+        risk_tier: T2            # Tech lead + security officer must sign off
+                                 # This is the production gate — cannot skip
+      confidence:
+        enabled: true

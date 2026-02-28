@@ -1,0 +1,114 @@
+# Workflow: API-First Feature
+#
+# WHO:    Teams that design the API contract before writing any code
+#         (common in platform teams, teams with multiple consumers)
+# WHEN:   New API endpoint or service boundary; consumers need to agree on the
+#         contract before implementation begins
+# AGENTS: ba → architect → dev → reviewer
+# HIL:    on after API design (stakeholders sign off on the contract)
+# GATES:  T0 → T1 → T1
+#
+# Flow:
+#   define-requirements
+#       ↓
+#   design-api          ← architect produces OpenAPI spec + data model
+#       ↓  (HIL: stakeholders review contract before any code is written)
+#   implement           ← dev implements against the agreed spec
+#       ↓
+#   review
+#
+# Notes:
+# - The architect focuses purely on the API contract (OpenAPI spec, request/response
+#   shapes, error codes, versioning) — not implementation internals
+# - HIL on design-api gives consumers/stakeholders a chance to veto before
+#   implementation is sunk cost
+# - Dev treats the OpenAPI spec as ground truth; deviations = NO_GO in review
+
+version: "1"
+name: api-first
+description: "Design the API contract, get stakeholder sign-off, then implement"
+
+tasks:
+  define-requirements:
+    agent: ba
+    description: |
+      Define the API requirements from the consumer perspective.
+      Produce:
+      - What problem the API solves (one paragraph)
+      - Consumer use cases (who calls this API and why)
+      - Functional requirements: what operations are needed
+      - Non-functional: latency targets, rate limits, auth mechanism
+      - Out of scope: what this API does NOT do
+    outputs:
+      - path: .ai-sdd/outputs/api-requirements.md
+        contract: requirements_doc
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T0
+
+  design-api:
+    agent: architect
+    description: |
+      Design the API contract based on the requirements.
+      Produce:
+      - OpenAPI 3.1 spec (YAML) for all new/changed endpoints
+      - Request/response schemas with examples
+      - Error response catalog (status codes + error codes + messages)
+      - Auth/authz model (who can call what)
+      - Versioning strategy (URL versioning, header versioning, etc.)
+      - Breaking vs non-breaking change classification
+      Do NOT design internal implementation — only the external contract.
+    depends_on: [define-requirements]
+    outputs:
+      - path: .ai-sdd/outputs/openapi.yaml
+      - path: .ai-sdd/outputs/api-design.md
+    overlays:
+      hil:
+        enabled: true          # Stakeholders (consumers, PMs) sign off on contract
+                               # before any implementation begins
+      policy_gate:
+        risk_tier: T0
+
+  implement:
+    agent: dev
+    description: |
+      Implement the API per the agreed contract in openapi.yaml.
+      - Treat openapi.yaml as the source of truth; deviations = bug
+      - Write contract tests that validate the implementation matches the spec
+      - Implement request validation, error responses per the error catalog
+      - Write integration tests for auth/authz rules
+      - Document any implementation decisions that deviate from spec (if unavoidable)
+    depends_on: [design-api]
+    outputs:
+      - path: .ai-sdd/outputs/implementation-notes.md
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T1
+    max_rework_iterations: 3
+
+  review:
+    agent: reviewer
+    description: |
+      Review implementation against the OpenAPI spec.
+      Critical checks:
+      1. Every endpoint in openapi.yaml is implemented and tested
+      2. Request validation rejects invalid inputs with correct error codes
+      3. Auth rules are enforced (not just happy path tested)
+      4. No undocumented endpoints or fields were added
+      5. Contract tests pass
+      Issue GO or NO_GO with spec section references for any finding.
+    depends_on: [implement]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/review.md
+        contract: review_report

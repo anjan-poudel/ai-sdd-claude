@@ -1,0 +1,76 @@
+version: "1"
+
+contracts:
+  requirements_doc:
+    name: requirements_doc
+    version: "1"
+    description: "Requirements document produced by the BA agent"
+    sections:
+      - Overview
+      - Requirements
+      - Acceptance Criteria
+    fields:
+      overview:
+        required: true
+        type: string
+        description: "Project overview"
+
+  architecture_l1:
+    name: architecture_l1
+    version: "1"
+    description: "L1 architecture document produced by the architect agent"
+    sections:
+      - Overview
+      - Architecture
+      - Components
+    fields:
+      technology_stack:
+        required: false
+        type: string
+
+  component_design_l2:
+    name: component_design_l2
+    version: "1"
+    description: "L2 component design document produced by the PE agent"
+    sections:
+      - Overview
+      - Components
+      - Interfaces
+
+  task_breakdown_l3:
+    name: task_breakdown_l3
+    version: "1"
+    description: "L3 task breakdown produced by the LE agent"
+    sections:
+      - Overview
+      - Tasks
+
+  implementation:
+    name: implementation
+    version: "1"
+    description: "Implementation artifact produced by the developer agent"
+    fields:
+      description:
+        required: true
+        type: string
+
+  review_report:
+    name: review_report
+    version: "1"
+    description: "Review report produced by the reviewer agent"
+    sections:
+      - Summary
+      - Decision
+    fields:
+      decision:
+        required: true
+        type: string
+        description: "GO or NO_GO"
+
+  spec_gate_report:
+    name: spec_gate_report
+    version: "1"
+    description: "Spec gate pre-implementation review report"
+    sections:
+      - Evidence Checklist
+      - HIL Sign-Off

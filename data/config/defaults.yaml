@@ -1,0 +1,32 @@
+version: "1"
+
+adapter:
+  type: mock
+  dispatch_mode: direct
+
+engine:
+  max_concurrent_tasks: 3
+  rate_limit_requests_per_minute: 20
+  cost_budget_per_run_usd: 10.00
+  cost_enforcement: pause
+  context_warning_threshold_pct: 80
+  context_hil_threshold_pct: 95
+
+overlays:
+  hil:
+    enabled: true
+    queue_path: ".ai-sdd/state/hil/"
+    poll_interval_seconds: 5
+    notify:
+      on_created: []
+      on_t2_gate: []
+
+security:
+  secret_patterns: []
+  injection_detection_level: warn
+
+constitution:
+  strict_parse: true
+
+observability:
+  log_level: INFO

@@ -1,0 +1,211 @@
+# Workflow: Greenfield Product — Full SDD
+#
+# WHO:    Product team building something new end-to-end
+# WHEN:   New product, new service, or major new capability from scratch
+# AGENTS: ba → architect → pe → le → dev → reviewer (all 6)
+# HIL:    on at requirements (PO sign-off) and L1 architecture (tech lead)
+# GATES:  T0 for design phases; T1 for implementation
+#
+# Flow:
+#   define-requirements
+#       ↓  (HIL: product owner signs off)
+#   design-l1            ← architect produces system architecture
+#       ↓  (HIL: tech lead or architecture review board)
+#   design-l2            ← PE produces component design
+#       ↓
+#   review-design        ← reviewer checks both L1 and L2 together
+#       ↓
+#   plan-tasks           ← LE breaks L2 into implementation tasks
+#       ↓
+#   implement            ← dev builds per task plan
+#       ↓
+#   review-implementation
+#
+# Notes:
+# - Two HIL checkpoints: after requirements (PO) and after L1 arch (tech lead)
+# - Design review covers both L1 and L2 in one pass (they can see each other)
+# - LE task breakdown is a document artifact, not new workflow tasks
+# - The dev gets the full plan document to implement from
+
+version: "1"
+name: greenfield-product
+description: "Full greenfield: requirements → architecture → design → plan → implement → review"
+
+tasks:
+  define-requirements:
+    agent: ba
+    description: |
+      Elicit and document all requirements for this product.
+      Produce:
+      - Executive summary: what this product does and for whom
+      - Functional requirements (numbered, testable)
+      - Non-functional requirements (performance, security, availability, scalability)
+      - User personas and primary use cases
+      - Gherkin acceptance criteria for the top 5 most critical scenarios
+      - Constraints (budget, timeline, technology mandates)
+      - Out of scope items (explicit)
+      - Open questions requiring stakeholder input
+    outputs:
+      - path: .ai-sdd/outputs/requirements.md
+        contract: requirements_doc
+    overlays:
+      hil:
+        enabled: true          # Product owner reviews before architecture begins
+      policy_gate:
+        risk_tier: T0
+    max_rework_iterations: 2
+
+  design-l1:
+    agent: architect
+    description: |
+      Produce the L1 system architecture based on requirements.md.
+      Cover:
+      - System context diagram: this system + external actors/systems
+      - Component list with single-sentence responsibility for each
+      - Data flow: how data moves between components and external systems
+      - Technology choices with brief rationale (language, framework, DB, infra)
+      - Security architecture: auth, authz, encryption at rest/transit
+      - Operational model: deployment unit, environments, scaling strategy
+      - Risk register: top 3-5 technical risks + mitigation approach
+      - Decision log: key choices made and alternatives considered
+    depends_on: [define-requirements]
+    outputs:
+      - path: .ai-sdd/outputs/architecture-l1.md
+        contract: architecture_l1
+    overlays:
+      hil:
+        enabled: true          # Tech lead or ARB reviews before PE starts L2
+      policy_gate:
+        risk_tier: T0
+    max_rework_iterations: 2
+
+  design-l2:
+    agent: pe
+    description: |
+      Produce the L2 component design based on architecture-l1.md.
+      For each component identified in L1:
+      - Detailed module/package structure
+      - Public interfaces (function signatures, types, errors)
+      - Database schema (tables, columns, indexes, constraints)
+      - Inter-component communication contracts (sync/async, payloads)
+      - Internal state management
+      - Configuration surface (what is configurable, how)
+      - Observability: what metrics/logs/traces each component emits
+      - Test strategy per component (unit / integration / e2e boundaries)
+    depends_on: [design-l1]
+    outputs:
+      - path: .ai-sdd/outputs/component-design-l2.md
+        contract: component_design_l2
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T0
+
+  review-design:
+    agent: reviewer
+    description: |
+      Review the architecture and component design together for coherence.
+      L1 checks:
+      1. Architecture addresses all functional and NFRs from requirements
+      2. Technology choices are justified and consistent
+      3. Security model is complete
+      L2 checks:
+      4. L2 components align with L1 component boundaries
+      5. Inter-component contracts are fully specified on both sides
+      6. Database schema is normalized and has appropriate indexes
+      7. Observability design is sufficient for operating the system
+      Cross-cutting:
+      8. No gaps between L1 and L2 (something in L1 not covered in L2)
+      Issue GO or NO_GO. If NO_GO, specify which level (L1, L2, or both) needs revision.
+    depends_on: [design-l2]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T0
+    outputs:
+      - path: .ai-sdd/outputs/design-review.md
+        contract: review_report
+    exit_conditions:
+      - "review.decision == GO"
+
+  plan-tasks:
+    agent: le
+    description: |
+      Break the L2 component design into a concrete implementation task list.
+      For each task:
+      - Task ID and title
+      - Which component it belongs to
+      - Acceptance criteria (testable, specific)
+      - Dependencies on other tasks
+      - Estimated effort (XS / S / M / L)
+      - Files to create or modify
+      Order tasks so that shared infrastructure (DB migrations, config, shared types)
+      comes before business logic, and business logic comes before integration.
+      Flag any tasks that are on the critical path.
+    depends_on: [review-design]
+    outputs:
+      - path: .ai-sdd/outputs/task-breakdown-l3.md
+        contract: task_breakdown_l3
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T0
+
+  implement:
+    agent: dev
+    description: |
+      Implement all tasks in task-breakdown-l3.md, in the order specified.
+      For each task:
+      - Create or modify the files listed
+      - Meet the task acceptance criteria
+      - Write tests as specified in the L2 test strategy
+      After all tasks are done, verify:
+      - All Gherkin acceptance criteria from requirements.md pass
+      - Code lints clean
+      - Test coverage ≥ 80% on new code
+      Note any deviations from the design in implementation-notes.md.
+    depends_on: [plan-tasks]
+    outputs:
+      - path: .ai-sdd/outputs/implementation-notes.md
+        contract: implementation
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T1
+      confidence:
+        enabled: true
+        threshold: 0.80
+    max_rework_iterations: 4
+
+  review-implementation:
+    agent: reviewer
+    description: |
+      Final review of the implementation against all upstream artifacts.
+      Requirements:
+      1. All Gherkin acceptance criteria have passing tests
+      2. NFRs are addressed (security headers, error handling, logging)
+      Architecture:
+      3. Implementation matches L2 component structure and interfaces
+      4. No accidental coupling across component boundaries
+      Code quality:
+      5. No hardcoded secrets, URLs, or environment-specific values
+      6. Error handling is consistent and informative
+      7. Observability instrumentation is present per L2 design
+      Issue final GO (production-ready) or NO_GO with prioritised findings.
+    depends_on: [implement]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+      policy_gate:
+        risk_tier: T1
+    outputs:
+      - path: .ai-sdd/outputs/final-review.md
+        contract: review_report

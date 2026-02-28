@@ -1,0 +1,77 @@
+# Workflow: Agile Feature
+#
+# WHO:    Agile feature team (BA + devs)
+# WHEN:   A product feature with known scope, no architectural unknowns
+# AGENTS: ba → dev → reviewer
+# HIL:    on for BA output only (product owner approves requirements)
+# GATES:  T0 for requirements, T1 for implementation
+#
+# Flow:
+#   define-requirements → implement → review
+#
+# Notes:
+# - BA defines the story and acceptance criteria in Gherkin
+# - Product owner reviews requirements via HIL before dev starts
+# - Dev iterates up to 3 times before reviewer escalates
+# - No architecture phase: feature fits in an existing system
+
+version: "1"
+name: agile-feature
+description: "Agile feature: BA defines story → dev implements → reviewer verifies"
+
+tasks:
+  define-story:
+    agent: ba
+    description: |
+      Define the user story and acceptance criteria for this feature.
+      Produce:
+      - User story in "As a / I want / So that" format
+      - Gherkin acceptance criteria (Given/When/Then) for each scenario
+      - Edge cases and out-of-scope items explicitly listed
+      - Any data model changes needed (describe fields, not schema DDL)
+    outputs:
+      - path: .ai-sdd/outputs/story.md
+        contract: requirements_doc
+    overlays:
+      hil:
+        enabled: true          # Product owner approves story before dev starts
+      policy_gate:
+        risk_tier: T0          # Just need the document present
+
+  implement:
+    agent: dev
+    description: |
+      Implement the feature per the story in story.md.
+      - All Gherkin acceptance criteria must pass as tests
+      - Add/update unit tests; keep coverage ≥ 80% on changed files
+      - Update API documentation if endpoints changed
+      - Do not introduce new dependencies without noting them in fix-summary.md
+    depends_on: [define-story]
+    outputs:
+      - path: .ai-sdd/outputs/implementation-notes.md
+    overlays:
+      hil:
+        enabled: false
+      policy_gate:
+        risk_tier: T1          # Tests must pass
+    max_rework_iterations: 3
+
+  review:
+    agent: reviewer
+    description: |
+      Review the implementation against the story acceptance criteria.
+      Check:
+      1. All Gherkin scenarios have corresponding passing tests
+      2. Code quality: no obvious smells, dead code, or TODOs blocking merge
+      3. No unintended scope creep beyond the story
+      4. API changes are documented if applicable
+      Issue GO (merge-ready) or NO_GO with numbered findings for the dev to address.
+    depends_on: [implement]
+    overlays:
+      hil:
+        enabled: false
+      review:
+        enabled: true
+    outputs:
+      - path: .ai-sdd/outputs/review.md
+        contract: review_report
