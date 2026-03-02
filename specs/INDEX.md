@@ -68,6 +68,7 @@
 | [T018](tasks/T018-claude-code-integration.md) | Claude Code Native Integration | S (4d) | New |
 | [T019](tasks/T019-codex-integration.md) | OpenAI / Codex Integration | M (4d) | New |
 | [T020](tasks/T020-roo-code-integration.md) | Roo Code Native Integration | M (5d) | New |
+| [T023](tasks/T023-project-scaffolding.md) | Project Scaffolding — `/sdd-scaffold` skill + subagent + CLI | M (5d) | New |
 
 ---
 
@@ -99,6 +100,7 @@
 | [T018](tasks/T018-claude-code-integration.md) | Claude Code Native Integration | S (4d) | Slash commands + CLAUDE.md; adapter for headless/CI only |
 | [T019](tasks/T019-codex-integration.md) | OpenAI / Codex Integration | M (4d) | AGENTS.md template; OpenAIAdapter; shared tool schemas; no Jinja2 |
 | [T020](tasks/T020-roo-code-integration.md) | Roo Code Native Integration | M (5d) | Static `.roomodes` template; shared MCP server; no generate_modes.py |
+| [T023](tasks/T023-project-scaffolding.md) | Project Scaffolding | M (5d) | `/sdd-scaffold` skill + `sdd-scaffold` subagent + `ai-sdd scaffold` CLI; generates constitution.md, ai-sdd.yaml, init-report.md |
 
 ---
 
@@ -138,12 +140,13 @@ T011 ──► T017 (Security)
 ### Phase 3 (Native Integration) — parallel with Phase 4
 
 ```
-T010 (CLI complete) ──► T018 (Claude Code)
+T010 (CLI complete) ──► T018 (Claude Code) ──► T023 (Scaffolding)
                     ──► T019 (Codex)
                     ──► T020 (Roo Code)
 ```
 
 T018/T019/T020 can run in parallel after the CLI is stable.
+T023 depends on T018 (uses Claude Code skill/subagent infrastructure) and T010 (CLI command).
 
 ---
 
