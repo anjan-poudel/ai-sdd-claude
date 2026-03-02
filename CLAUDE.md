@@ -108,12 +108,31 @@ ai-sdd status [--json] [--next --json] [--metrics]
 ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp>
 ai-sdd validate-config
 ai-sdd constitution [--task <id>]
-ai-sdd hil list | show <id> | resolve <id> [--notes] | reject <id> [--reason]
+ai-sdd hil list [--json] | show <id> | resolve <id> [--notes] | reject <id> [--reason]
 ai-sdd init --tool <name> [--project <path>]   # tool: claude_code | openai | roo_code
-ai-sdd serve --mcp [--port <n>]
+ai-sdd serve --mcp                             # stdio transport only — no --port
 ai-sdd migrate [--dry-run] [--from N --to N]
 ```
 
+## Development Standards
+
+These rules are derived from post-implementation gap analysis (`specs/GAP-RETROSPECTIVE.md`).
+They are binding — violating them is the same class of error as a failing test.
+
+1. **Config-to-behaviour tests**: Every config field and CLI flag must have a test that changes the field and asserts different runtime behaviour. If no such test can be written, the feature is not yet implemented.
+
+2. **Integration point tests**: When component A is wired into component B, write a test that verifies A is called when B runs. Unit tests of A in isolation are insufficient for wiring verification.
+
+3. **No silent stubs**: Deferred features must throw or return an explicit failure with an actionable message. Returning a successful result without doing the work is forbidden.
+
+4. **External schema fixtures**: Integration with any external CLI or API must be tested against a fixture of real captured output. Do not test against an assumed schema.
+
+5. **Error messages are contracts**: Every error message that says "X happened" must be verified by a test that confirms X actually happened (state transition, file written, event emitted).
+
+6. **No empty directories**: A directory must contain at least one file on the day it is created. Empty directories are dangling references.
+
+7. **One integration test per CLI command**: Each CLI command should have at least one end-to-end test exercising it with a real (but in-process) project directory, not just unit tests of the underlying functions.
+
 ## Specs
 
-The `specs/` directory contains the original planning documents. `specs/CONTRACTS.md` is the canonical reference for enum values and transaction boundaries. Individual task specs live in `specs/tasks/T*.md`.
+The `specs/` directory contains the original planning documents. `specs/CONTRACTS.md` is the canonical reference for enum values, transaction boundaries, and development invariants (§13). `specs/GAP-RETROSPECTIVE.md` documents the root causes of all 24 post-implementation gaps and their prevention patterns. Individual task specs live in `specs/tasks/T*.md`.

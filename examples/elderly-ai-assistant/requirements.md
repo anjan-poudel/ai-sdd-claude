@@ -1,19 +1,26 @@
 please rewrite the below prompt to make it coherent and to the point and actionable for LLMs.
 ---------------------
-Think deep about Designing an **AI Assistant system for Elderly people** that has small LLM providing the intelligence and brain for the system.
+
+## Mission
+- Assist in everyday activities and needs, so they can maintain necessary routines and social connections.
+- Bridge the digital divide in elderly people and make the vast internet and its applications accessible to thel.
+
+## Goal
+Design an **AI Assistant system for Elderly people**, that is highly **personalisable**.
+It should  have LLM on edge device (smartphones) providing the intelligence and brain for the system.
 The AI Agent will act as an interface between complex tech and online/virtual worlds and users. 
 Provide details of components and systems required to build th AI Assistant ( architecture and other system diagrams).
 
+## What is it?
 The app is mainly targeted for elderly parents from non english speaking background,
 who find using smartphones overwhelming for various reasons.
 But at the same time they want to use some apps like YouTube and facebook, whatsApp etc for entertainment
 and to connect with their children living in different country or city/location.
 
-## A personal assistant in the pocket
-Primary purpose is to build an AI based personal assistant highly tailored for individuals to manage their daily life better.
+## A highly personalised personal assistant in the pocket
+Primary purpose is to build AI based personal assistant in smartphones, that is highly tailored for individuals to manage their daily life better.
 Ai will have capabilities from voice recognition, accents recognition to personalised context awareness -  contact, family , schedules, medications, therapies, meetings etc.
 Remote personalization and configuration management and remote monitoring as needed ( pinging or sending telemetry data from connected devices etc).
-
 
 
 ## Bridging Digital Divide with AI

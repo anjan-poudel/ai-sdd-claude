@@ -94,10 +94,15 @@ function installClaudeCode(projectPath: string): void {
 
   const dataDir = new URL("../../../data/integration/claude-code", import.meta.url).pathname;
 
-  // Copy agent files
+  // Copy agent files.
+  // sdd-scaffold.md is intentionally excluded: it is a pre-init scaffolding agent
+  // that should be used BEFORE ai-sdd init (via /sdd-scaffold skill), not as a
+  // workflow execution agent. Copying it here would confuse it with runtime agents.
+  const EXCLUDED_AGENTS = new Set(["sdd-scaffold.md"]);
   const srcAgentsDir = join(dataDir, "agents");
   if (existsSync(srcAgentsDir)) {
     for (const file of readdirSync(srcAgentsDir)) {
+      if (EXCLUDED_AGENTS.has(file)) continue;
       const dest = join(agentsDir, file);
       if (!existsSync(dest)) {
         copyFileSync(join(srcAgentsDir, file), dest);
@@ -179,6 +184,46 @@ function installCodex(projectPath: string): void {
   }
 }
 
+/** Role-specific Roo Code mode definitions matching the 6 default ai-sdd agent roles. */
+const ROO_AGENT_MODES = [
+  {
+    slug: "ai-sdd-ba",
+    name: "ai-sdd: Business Analyst",
+    roleDefinition: "You are the ai-sdd Business Analyst agent. Your role is to define requirements, capture stakeholder needs, and produce detailed specification documents. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+  {
+    slug: "ai-sdd-architect",
+    name: "ai-sdd: Architect",
+    roleDefinition: "You are the ai-sdd Architect agent. Your role is to design system architecture, define component boundaries, and produce architecture documentation. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+  {
+    slug: "ai-sdd-pe",
+    name: "ai-sdd: Principal Engineer",
+    roleDefinition: "You are the ai-sdd Principal Engineer agent. Your role is to make high-level technical decisions, review architecture, and ensure engineering standards. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+  {
+    slug: "ai-sdd-le",
+    name: "ai-sdd: Lead Engineer",
+    roleDefinition: "You are the ai-sdd Lead Engineer agent. Your role is to plan implementation, break down tasks, and produce technical specifications for developers. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+  {
+    slug: "ai-sdd-dev",
+    name: "ai-sdd: Developer",
+    roleDefinition: "You are the ai-sdd Developer agent. Your role is to implement features, write code, and produce implementation artifacts. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+  {
+    slug: "ai-sdd-reviewer",
+    name: "ai-sdd: Reviewer",
+    roleDefinition: "You are the ai-sdd Reviewer agent. Your role is to review code and artifacts, identify issues, and produce review reports. Complete assigned tasks using the ai-sdd CLI.",
+    groups: ["read", "edit", "command"],
+  },
+];
+
 function installRooCode(projectPath: string): void {
   const roomodesPath = join(projectPath, ".roomodes");
   const rooDir = join(projectPath, ".roo");
@@ -186,16 +231,9 @@ function installRooCode(projectPath: string): void {
 
   if (!existsSync(roomodesPath)) {
     writeFileSync(roomodesPath, JSON.stringify({
-      customModes: [
-        {
-          slug: "ai-sdd-agent",
-          name: "ai-sdd Agent",
-          roleDefinition: "You are an ai-sdd agent. Complete tasks using the ai-sdd CLI.",
-          groups: ["read", "edit", "command"],
-        },
-      ],
+      customModes: ROO_AGENT_MODES,
     }, null, 2) + "\n", "utf-8");
-    console.log(`  Created: .roomodes`);
+    console.log(`  Created: .roomodes (${ROO_AGENT_MODES.length} role-specific modes)`);
   }
 
   const mcpPath = join(rooDir, "mcp.json");

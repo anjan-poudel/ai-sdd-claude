@@ -51,11 +51,10 @@ export class HilOverlay implements BaseOverlay {
       return { proceed: true };
     }
 
-    // Check if there's already a pending HIL item for this task
+    // Reuse an existing pending HIL item for this task (idempotent on retry)
     const existing = this.queue.list("PENDING").find((i) => i.task_id === ctx.task_id);
     if (existing) {
-      // Wait for resolution
-      return this.waitForHil(existing.id, ctx);
+      return { proceed: false, hil_trigger: true, data: { hil_id: existing.id } };
     }
 
     // Create new HIL item
@@ -87,23 +86,25 @@ export class HilOverlay implements BaseOverlay {
     // Run notifications
     await this.runNotifications(riskTier, hilId, ctx);
 
-    return this.waitForHil(hilId, ctx);
+    // Return immediately — engine will transition to HIL_PENDING then call awaitResolution
+    return { proceed: false, hil_trigger: true, data: { hil_id: hilId } };
   }
 
-  private async waitForHil(
-    hilId: string,
-    ctx: OverlayContext,
-  ): Promise<OverlayResult> {
+  /**
+   * Wait for the HIL item to be resolved or rejected (polling).
+   * Called by the engine after it has transitioned the task to HIL_PENDING.
+   */
+  async awaitResolution(hilId: string, pollIntervalMs?: number): Promise<OverlayResult> {
     try {
       const resolved = await this.queue.waitForResolution(
         hilId,
-        this.config.poll_interval_ms ?? 5000,
+        pollIntervalMs ?? this.config.poll_interval_ms ?? 5000,
       );
 
       if (resolved.status === "REJECTED") {
         this.emitter.emit("hil.rejected", {
           hil_id: hilId,
-          task_id: ctx.task_id,
+          task_id: resolved.task_id,
           reason: resolved.rejection_reason,
         });
         return {
@@ -114,7 +115,7 @@ export class HilOverlay implements BaseOverlay {
 
       this.emitter.emit("hil.resolved", {
         hil_id: hilId,
-        task_id: ctx.task_id,
+        task_id: resolved.task_id,
         notes: resolved.notes,
       });
       return { proceed: true };
@@ -137,10 +138,45 @@ export class HilOverlay implements BaseOverlay {
 
     if (!hooks || hooks.length === 0) return;
 
-    // Hooks are shell commands (Phase 2 feature — stub for now)
-    // In Phase 2, each hook would be executed as a subprocess
-    void hooks;
-    void hilId;
-    void ctx;
+    // Execute each notification hook as a shell command with context env vars.
+    // Failures are logged but do not block the HIL flow.
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      HIL_ID: hilId,
+      HIL_TASK_ID: ctx.task_id,
+      HIL_WORKFLOW_ID: ctx.workflow_id,
+      HIL_RISK_TIER: riskTier,
+      HIL_REASON: ctx.task_definition.overlays?.hil?.risk_tier === "T2"
+        ? `T2 risk tier — mandatory human sign-off required before executing task '${ctx.task_id}'`
+        : `HIL triggered for task '${ctx.task_id}'`,
+    };
+
+    for (const cmd of hooks) {
+      try {
+        const proc = Bun.spawn(["sh", "-c", cmd], {
+          env,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const exitCode = await proc.exited;
+        if (exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          this.emitter.emit("hil.notify_failed", {
+            hil_id: hilId,
+            task_id: ctx.task_id,
+            command: cmd,
+            exit_code: exitCode,
+            stderr: stderr.trim(),
+          });
+        }
+      } catch (err) {
+        this.emitter.emit("hil.notify_failed", {
+          hil_id: hilId,
+          task_id: ctx.task_id,
+          command: cmd,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 }

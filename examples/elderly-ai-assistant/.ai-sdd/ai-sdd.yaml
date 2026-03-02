@@ -1,0 +1,12 @@
+version: "1"
+
+adapter:
+  type: claude_code
+
+engine:
+  max_concurrent_tasks: 3
+  cost_budget_per_run_usd: 10.00
+
+overlays:
+  hil:
+    enabled: true

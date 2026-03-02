@@ -15,8 +15,10 @@
 | [ROADMAP.md](ROADMAP.md) | Milestones, task groups, effort, critical path, MVP gate |
 | [GAPS-ANALYSIS.md](GAPS-ANALYSIS.md) | 10 gaps found + solutions + prioritized remediation |
 | [TASK-VISUALIZATION.md](TASK-VISUALIZATION.md) | Full task dependency graph + greenfield & brownfield project walkthroughs |
-| [CONTRACTS.md](CONTRACTS.md) | Canonical contracts appendix: tool names, task states, idempotency keys, CLI flags, transaction boundaries |
-| [PRE-IMPLEMENTATION-GATE.md](PRE-IMPLEMENTATION-GATE.md) | Pre-implementation gate — 24 checks from 3 reviews. Must PASS before Phase 1 begins. |
+| [CONTRACTS.md](CONTRACTS.md) | Canonical contracts appendix: tool names, task states, idempotency keys, CLI flags, transaction boundaries, development invariants (§13) |
+| [PRE-IMPLEMENTATION-GATE.md](PRE-IMPLEMENTATION-GATE.md) | Pre-implementation gate — 30 checks (24 original + 6 gap-prevention). Must PASS before Phase 1 begins. |
+| [GAP-FIXES-SPRINT-AB.md](GAP-FIXES-SPRINT-AB.md) | Post-implementation gap fixes — all 24 gaps; 20 fixed across Sprints A–D, 4 deferred. Canonical fix reference. |
+| [GAP-RETROSPECTIVE.md](GAP-RETROSPECTIVE.md) | Root-cause analysis of all 24 gaps; 6 prevention patterns; development standards going forward. |
 | [REVIEW-FEEDBACK.md](REVIEW-FEEDBACK.md) | Codex review — 9 findings, all addressed |
 | [GEMINI-REVIEW.md](GEMINI-REVIEW.md) | Gemini review — 6 findings, all addressed |
 | [deepseek-review.md](deepseek-review.md) | DeepSeek review — 10 action items, all addressed |

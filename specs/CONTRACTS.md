@@ -115,8 +115,8 @@ never changes the pass/fail verdict.
 | `ai-sdd hil reject <id>` | `--reason` | Reject; fail task |
 | `ai-sdd init` | `--tool <name>` | Install tool integration files |
 | `ai-sdd init` | `--project <path>` | Target project directory |
-| `ai-sdd serve` | `--mcp` | Start MCP server |
-| `ai-sdd serve` | `--port <n>` | MCP server port (default 3000) |
+| `ai-sdd serve` | `--mcp` | Start MCP server (stdio transport only) |
+| `ai-sdd hil list` | `--json` | Output pending HIL items as machine-readable JSON |
 
 ---
 
@@ -239,3 +239,71 @@ tasks:
       policy_gate:
         risk_tier: T2                  # T2 always triggers HIL regardless of enabled flag
 ```
+
+---
+
+## 13. Development Invariants (Gap Prevention)
+
+These invariants are binding rules derived from post-implementation gap analysis
+(`specs/GAP-RETROSPECTIVE.md`). They apply to all contributors and AI agents working on this codebase.
+Violations are grounds for blocking a PR in the same way a failing test blocks a merge.
+
+### 13.1 Config-to-Behaviour Binding
+
+**Every config field and CLI flag MUST have a test that changes the field and asserts different runtime behaviour.**
+
+- Adding `adapter.type` to the schema requires a test that passes `type: "claude_code"` and asserts a `ClaudeCodeAdapter` is constructed.
+- A flag that exists in the CLI definition but has no behaviour test is **not yet implemented** — it must either be removed or implemented before merging.
+- The `satisfies never` pattern in exhaustive `switch` statements is the structural enforcement mechanism. New enum values without factory cases are compile errors.
+
+### 13.2 Integration Point Tests
+
+**Every time component A is wired into component B, a test MUST verify A is called when B runs.**
+
+- Unit tests of A in isolation are not sufficient.
+- Example: wiring the overlay chain into the engine requires a test that creates an engine with a spy overlay and asserts the overlay's `preTask` was called during `engine.run()`.
+- Structural coupling tests ("this module imports that module") prevent silent forks where two independent implementations drift apart.
+
+### 13.3 No Silent Stubs
+
+**Deferred features MUST fail loudly. A placeholder MUST NOT return a successful result.**
+
+- If a feature is planned for a future phase, the current implementation must either throw `NotImplementedError` with an actionable message, or return an explicit failure result (e.g. `accept: false, new_status: "NEEDS_REWORK"`) that is visible to the caller.
+- Silent pass-through (returning `{ accept: true }` without doing the work) is forbidden.
+- The error/failure message must name the feature and the phase in which it will be implemented, e.g. `"Paired overlay requires Phase 3 adapter injection. Set overlays.paired.enabled: false to bypass."`.
+
+### 13.4 External Schema Fixtures
+
+**Any code that integrates with an external CLI or API MUST be tested against a fixture of actual captured output.**
+
+- Write a fixture file containing real CLI/API JSON output. Write tests against that fixture.
+- Do not write tests against an assumed or guessed schema — run the real CLI/API once, capture its output, commit the fixture.
+- A fallback path (e.g. `catch → raw fallback`) that silently swallows a parse error is a gap concealer, not a safety net. Any fallback must emit an observable signal (log, metric, counter) so it can be detected.
+- When the external schema changes, the fixture test breaks — this is the correct behaviour.
+
+### 13.5 Error Message Contracts
+
+**Every error message that says "X happened" MUST be verified by a test that asserts X actually happened.**
+
+- If a message says `"Task set to NEEDS_REWORK"`, there must be a test that calls the code and then reads the task state to confirm it is `NEEDS_REWORK`.
+- Error messages are contracts, not comments. Code review should flag any message that describes an outcome without the code performing that outcome.
+- Mechanically: if the message contains a state name (e.g. `NEEDS_REWORK`, `FAILED`), grep the surrounding branch for a `transition()` call with that state. If absent, the message is wrong.
+
+### 13.6 No Empty Directories
+
+**No empty directory may be committed. A directory must contain at least one file on the day it is created.**
+
+- If a directory is created as a structural placeholder, it must contain a `README.md` explaining what will go there, or a `.gitkeep` with a comment.
+- An empty directory is a dangling reference — it implies code exists or is coming soon without committing to either.
+- CI check: `find src -type d` with no source files in a directory should fail the build.
+
+### Summary
+
+| Rule | What it prevents |
+|------|-----------------|
+| 13.1 Config-to-behaviour binding | Config parsed but never read (Gap #1, #8, #13, #23) |
+| 13.2 Integration point tests | Component implemented but never wired (Gap #2, #3, #18) |
+| 13.3 No silent stubs | Placeholder silently succeeds (Gap #11, #12) |
+| 13.4 External schema fixtures | Assumed schema never matched real output (Gap #5) |
+| 13.5 Error message contracts | Message and code say different things (Gap #9) |
+| 13.6 No empty directories | Structure implies code that does not exist (Gap #4, #22) |

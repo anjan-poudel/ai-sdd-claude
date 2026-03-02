@@ -5,7 +5,7 @@
 **Purpose:** This gate must be fully PASSED before any Phase 1 implementation begins.
 Every item is a verifiable, binary check. A single OPEN item blocks implementation.
 
-**Current Status: ⏳ READY_FOR_SIGNOFF** — all 24 spec checks resolved; awaiting implementation-time sign-off from Tech Lead and Security Reviewer.
+**Current Status: ⏳ READY_FOR_SIGNOFF** — all 30 spec checks resolved (24 original + 6 gap-prevention); awaiting implementation-time sign-off from Tech Lead and Security Reviewer.
 
 ---
 
@@ -131,6 +131,23 @@ Every item is a verifiable, binary check. A single OPEN item blocks implementati
 
 ---
 
+## Category 12: Gap Prevention Standards
+*Source: GAP-RETROSPECTIVE.md (2026-03-03) — 24 post-implementation gaps; 20 fixed, 4 deferred*
+
+These checks are derived from root-cause analysis of gaps that existed despite 177+ passing tests.
+They govern **how code is written and tested**, not just whether it compiles.
+
+| # | Check | Status | Verified in |
+|---|---|---|---|
+| G1 | Every config field and CLI flag has a test that changes the field and asserts different runtime behaviour. A field that cannot be tested this way is not yet implemented. | ✅ RESOLVED | `tests/adapters/adapter-factory.test.ts`; exhaustive switch in `src/adapters/factory.ts` |
+| G2 | Every integration point (component A wired into component B) has an integration test that verifies A is called when B runs. Unit tests of A in isolation are not sufficient. | ✅ RESOLVED | Engine overlay chain tests; `tests/overlays/` suite |
+| G3 | No stub or placeholder returns a successful result without implementing the feature. Deferred features must throw `NotImplementedError` or return an explicit failure with an actionable message. | ✅ RESOLVED | `paired-overlay.ts` returns `NEEDS_REWORK`; `roo_code` adapter throws on use |
+| G4 | Any code that integrates with an external CLI or API is tested against a fixture of actual captured output, not an assumed schema. A fallback path that silently swallows a parse error is not a safety net. | ✅ RESOLVED | `tests/adapters/claude-code-adapter.test.ts` uses real CLI JSON schema |
+| G5 | Every error message that says "X happened" has a test verifying X actually happened (state transition, file written, event emitted). Error messages are contracts, not comments. | ✅ RESOLVED | `tests/complete-task-injection.test.ts` verifies `NEEDS_REWORK` transition |
+| G6 | No empty directories are committed. A directory created as a placeholder must contain at least a `README.md` or `.gitkeep` with a comment explaining its purpose. | ✅ RESOLVED | `src/integration/claude-code/`, `openai/`, `roo-code/` directories deleted |
+
+---
+
 ## Gate Summary
 
 | Category | Items | Resolved | Open |
@@ -146,7 +163,8 @@ Every item is a verifiable, binary check. A single OPEN item blocks implementati
 | Schema Versioning | 2 | 2 | 0 |
 | Artifact Contract | 1 | 1 | 0 |
 | Performance Budgets | 1 | 1 | 0 |
-| **TOTAL** | **24** | **24** | **0** |
+| Gap Prevention Standards | 6 | 6 | 0 |
+| **TOTAL** | **30** | **30** | **0** |
 
 ---
 
@@ -157,7 +175,8 @@ Every item is a verifiable, binary check. A single OPEN item blocks implementati
 │                                                │
 │   PRE-IMPLEMENTATION GATE:  ⏳ READY_FOR_SIGNOFF│
 │                                                │
-│   All 24 spec checks resolved.                 │
+│   All 30 spec checks resolved.                 │
+│   (24 original + 6 gap-prevention §G1–G6)      │
 │   Awaiting Tech Lead + Security Reviewer       │
 │   sign-offs to move to PASSED.                 │
 │   Phase 1 is blocked until both sign-offs are  │

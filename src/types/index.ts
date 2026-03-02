@@ -164,6 +164,8 @@ export interface AgentContext {
   handover_state: Record<string, unknown>;
   task_definition: TaskDefinition;
   dispatch_mode: DispatchMode;
+  /** Absolute path to the project root. Used by direct-mode adapters that write output files. */
+  project_path?: string;
 }
 
 export interface TaskResult {

@@ -45,14 +45,22 @@ export class PolicyGateOverlay implements BaseOverlay {
       }
     }
 
-    // T1: acceptance + verification evidence
+    // T1: acceptance + verification evidence (tests_passed OR lint_passed required)
     if (riskTier === "T1" || riskTier === "T2") {
-      // Check for verification evidence (tests/lint/security)
       const hasVerification = result.handover_state?.["tests_passed"] === true ||
         result.handover_state?.["lint_passed"] === true;
       if (!hasVerification) {
-        // Advisory warning — not a hard failure in Phase 1
-        // Phase 3 will add full evidence collection
+        failures.push(
+          `${riskTier} risk tier requires verification evidence (tests_passed or lint_passed in handover_state)`,
+        );
+      }
+    }
+
+    // T2: also requires security evidence
+    if (riskTier === "T2") {
+      const hasSecurity = result.handover_state?.["security_clean"] === true;
+      if (!hasSecurity) {
+        failures.push("T2 risk tier requires security_clean evidence in handover_state");
       }
     }
 

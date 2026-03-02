@@ -15,6 +15,7 @@ import { resolve, normalize, isAbsolute, relative } from "path";
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { StateManager } from "../../core/state-manager.ts";
+import { WorkflowLoader } from "../../core/workflow-loader.ts";
 import { createManifestWriter } from "../../constitution/manifest-writer.ts";
 import { OutputSanitizer } from "../../security/output-sanitizer.ts";
 import { InputSanitizer } from "../../security/input-sanitizer.ts";
@@ -57,6 +58,23 @@ export function registerCompleteTaskCommand(program: Command): void {
         process.exit(1);
       }
 
+      // Validate output path is declared in the task definition
+      const declaredOutputs = loadDeclaredOutputs(projectPath, taskId);
+      if (declaredOutputs !== null && declaredOutputs.length > 0) {
+        const normalizedRel = rel.replace(/\\/g, "/");
+        const allowed = declaredOutputs.some((p) => {
+          const normalizedDeclared = p.replace(/\\/g, "/");
+          return normalizedRel === normalizedDeclared;
+        });
+        if (!allowed) {
+          console.error(
+            `Output path '${rel}' is not in the declared outputs for task '${taskId}'.\n` +
+            `Declared: ${declaredOutputs.join(", ")}`,
+          );
+          process.exit(1);
+        }
+      }
+
       // ─── Step 2: Security sanitization ───────────────────────────────────────
       const content = readFileSync(contentFile, "utf-8");
 
@@ -91,8 +109,19 @@ export function registerCompleteTaskCommand(program: Command): void {
         const names = inputCheck.violations.map((v) => v.pattern_name).join(", ");
         console.error(
           `Injection pattern detected in task output (${names}). ` +
-          `Task set to NEEDS_REWORK.`,
+          `Task set to NEEDS_REWORK. Remove injection patterns and resubmit.`,
         );
+        // Mark task as NEEDS_REWORK (mirrors the secret detection branch above)
+        const injectStateDir = resolve(projectPath, ".ai-sdd", "state");
+        const injectStateManager = new StateManager(injectStateDir, "workflow", projectPath);
+        injectStateManager.load();
+        try {
+          injectStateManager.transition(taskId, "NEEDS_REWORK", {
+            rework_feedback: `Injection pattern detected in output: ${names}`,
+          });
+        } catch {
+          // Already in rework or other state — ignore
+        }
         process.exit(1);
       }
 
@@ -149,4 +178,30 @@ export function registerCompleteTaskCommand(program: Command): void {
 
       console.log(`Task '${taskId}' completed. Output written to: ${outputPath}`);
     });
+}
+
+/**
+ * Load the declared output paths for a task from the workflow YAML.
+ * Returns the list of declared paths, null if the workflow cannot be loaded,
+ * or an empty array if the task has no declared outputs.
+ */
+function loadDeclaredOutputs(projectPath: string, taskId: string): string[] | null {
+  const wfPaths = [
+    resolve(projectPath, ".ai-sdd", "workflow.yaml"),
+    resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
+  ];
+
+  for (const wfPath of wfPaths) {
+    if (!existsSync(wfPath)) continue;
+    try {
+      const workflow = WorkflowLoader.loadFile(wfPath);
+      const task = workflow.tasks.get(taskId);
+      if (!task) return null; // task not in workflow — skip validation
+      return (task.outputs ?? []).map((o: { path: string }) => o.path);
+    } catch {
+      // Malformed YAML — skip validation gracefully
+    }
+  }
+
+  return null; // no workflow found — skip validation
 }

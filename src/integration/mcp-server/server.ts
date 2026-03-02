@@ -14,7 +14,6 @@ import type { SpawnSyncOptions } from "child_process";
 
 export interface McpServerOptions {
   project_path: string;
-  port?: number;
 }
 
 const TOOLS = [

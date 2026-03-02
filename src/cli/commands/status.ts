@@ -10,6 +10,29 @@ import { WorkflowLoader } from "../../core/workflow-loader.ts";
 import { loadProjectConfig } from "../config-loader.ts";
 import type { TaskStatus } from "../../types/index.ts";
 
+/** Resolve the workflow name using the same search order as the run command. */
+function resolveWorkflowName(projectPath: string, configWorkflowName?: string): string {
+  const wfPaths = [
+    resolve(projectPath, ".ai-sdd", "workflow.yaml"),
+    ...(configWorkflowName
+      ? [resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)]
+      : []),
+    resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
+  ];
+  for (const p of wfPaths) {
+    if (existsSync(p)) {
+      try {
+        const wf = WorkflowLoader.loadFile(p);
+        return wf.config.name;
+      } catch {
+        // Malformed YAML — skip
+      }
+    }
+  }
+  // Fall back to the name stored in the state file (load() will override the constructor value)
+  return "workflow";
+}
+
 const STATUS_SYMBOLS: Record<TaskStatus, string> = {
   PENDING: "○",
   RUNNING: "◉",
@@ -31,7 +54,9 @@ export function registerStatusCommand(program: Command): void {
       const projectPath = resolve(options.project as string);
       const stateDir = resolve(projectPath, ".ai-sdd", "state");
 
-      const stateManager = new StateManager(stateDir, "workflow", projectPath);
+      const config = loadProjectConfig(projectPath);
+      const workflowName = resolveWorkflowName(projectPath, config.workflow as string | undefined);
+      const stateManager = new StateManager(stateDir, workflowName, projectPath);
       try {
         stateManager.load();
       } catch {

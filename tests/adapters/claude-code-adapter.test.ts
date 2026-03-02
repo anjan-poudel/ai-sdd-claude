@@ -120,30 +120,48 @@ describe("ClaudeCodeAdapter: parseOutput", () => {
     (adapter as unknown as Record<string, (id: string, out: string) => unknown>)
       ["parseOutput"]("design-l1", stdout);
 
-  it("parses JSON output — status COMPLETED", () => {
+  // claude --print --output-format json schema:
+  // { result, is_error, total_input_tokens, total_output_tokens, total_cost_usd, ... }
+
+  it("parses claude CLI JSON — status COMPLETED", () => {
     const result = parse(JSON.stringify({
-      outputs: [{ path: "out.md" }],
-      handover_state: { decision: "GO" },
-      usage: { input_tokens: 100, output_tokens: 50 },
+      result: "Architecture document content here.",
+      is_error: false,
+      total_input_tokens: 100,
+      total_output_tokens: 50,
     })) as Record<string, unknown>;
     expect(result["status"]).toBe("COMPLETED");
   });
 
-  it("parses JSON output — extracts handover_state", () => {
+  it("parses claude CLI JSON — content goes into handover_state.raw_output", () => {
     const result = parse(JSON.stringify({
-      handover_state: { decision: "GO" },
+      result: "Some LLM response",
+      is_error: false,
     })) as Record<string, unknown>;
-    expect((result["handover_state"] as Record<string, unknown>)["decision"]).toBe("GO");
+    expect((result["handover_state"] as Record<string, unknown>)["raw_output"])
+      .toBe("Some LLM response");
   });
 
-  it("parses JSON output — extracts token usage", () => {
+  it("parses claude CLI JSON — extracts token usage from total_input/output_tokens", () => {
     const result = parse(JSON.stringify({
-      usage: { input_tokens: 200, output_tokens: 80 },
+      result: "",
+      is_error: false,
+      total_input_tokens: 200,
+      total_output_tokens: 80,
     })) as Record<string, unknown>;
     const tokens = result["tokens_used"] as Record<string, number>;
     expect(tokens["input"]).toBe(200);
     expect(tokens["output"]).toBe(80);
     expect(tokens["total"]).toBe(280);
+  });
+
+  it("returns FAILED when is_error=true", () => {
+    const result = parse(JSON.stringify({
+      result: "Something went wrong",
+      is_error: true,
+    })) as Record<string, unknown>;
+    expect(result["status"]).toBe("FAILED");
+    expect(result["error_type"]).toBe("tool_error");
   });
 
   it("falls back to raw handover_state for non-JSON stdout", () => {
