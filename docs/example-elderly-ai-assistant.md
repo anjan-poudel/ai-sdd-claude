@@ -3,6 +3,10 @@
 How to use ai-sdd to generate the code for the Elderly AI Assistant app and backend.
 Source requirements: `examples/elderly-ai-assistant/requirements.md`
 
+or
+use @examples/elderly-ai-assistant/requirements.md to generate plans and create tasks under the same @examples/elderly-ai-assistant folder.
+Configure it to require HIL before starting implementation phase (tasks implementation.
+
 ---
 
 ## Steps
