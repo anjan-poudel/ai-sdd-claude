@@ -42,7 +42,8 @@ export interface BaseOverlay {
 
   /**
    * Pre-task hook — called before agent dispatch.
-   * Can block execution (hil_trigger) or modify context.
+   * May return hil_trigger=true to signal HIL gating; the engine then calls
+   * awaitResolution and transitions the task through HIL_PENDING.
    */
   preTask?(ctx: OverlayContext): Promise<OverlayResult>;
 
@@ -51,6 +52,13 @@ export interface BaseOverlay {
    * Can reject the result (triggering NEEDS_REWORK).
    */
   postTask?(ctx: OverlayContext, result: TaskResult): Promise<PostTaskOverlayResult>;
+
+  /**
+   * HIL-specific: wait for the item identified by hilId to be resolved or
+   * rejected.  Only implemented by the HIL overlay; the engine calls this after
+   * transitioning the task to HIL_PENDING.
+   */
+  awaitResolution?(hilId: string, pollIntervalMs?: number): Promise<OverlayResult>;
 }
 
 export type OverlayChain = BaseOverlay[];

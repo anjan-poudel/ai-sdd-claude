@@ -1,0 +1,17 @@
+name: final-sign-off
+agent: reviewer
+description: |
+  Produce change summary document for human sign-off. Include:
+  - Change summary: what was built and what changed
+  - Requirements traceability: FR/NFR → implementation → test evidence
+  - Security posture: summary of security design review + security test results
+  - Open items: known issues, deferred items, post-deploy monitoring
+  - Rollback plan: how to revert if the change causes production issues
+  - Compliance checklist: confirm each applicable compliance item is satisfied
+overlays:
+  hil:         { enabled: false }
+  review:      { enabled: true }
+  policy_gate: { risk_tier: T2 }    # mandatory human sign-off before production
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

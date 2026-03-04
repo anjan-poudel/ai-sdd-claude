@@ -122,19 +122,39 @@ export class ClaudeCodeAdapter extends RuntimeAdapter {
     ].join("\n");
   }
 
-  private parseOutput(task_id: string, stdout: string): TaskResult {
+  private parseOutput(_task_id: string, stdout: string): TaskResult {
+    // claude --print --output-format json returns:
+    // { result: string, is_error: boolean,
+    //   total_input_tokens: number, total_output_tokens: number,
+    //   total_cost_usd: number, session_id: string, ... }
     try {
       const parsed = JSON.parse(stdout) as Record<string, unknown>;
+
+      if (parsed["is_error"] === true) {
+        return {
+          status: "FAILED",
+          error: String(parsed["result"] ?? "claude CLI reported an error"),
+          error_type: "tool_error",
+        };
+      }
+
+      const content = String(parsed["result"] ?? "");
+      const inputTokens = Number(parsed["total_input_tokens"] ?? 0);
+      const outputTokens = Number(parsed["total_output_tokens"] ?? 0);
+
       return {
         status: "COMPLETED",
-        outputs: (parsed["outputs"] as TaskResult["outputs"]) ?? [],
-        handover_state: (parsed["handover_state"] as Record<string, unknown>) ?? {},
-        tokens_used: parsed["usage"] ? {
-          input: (parsed["usage"] as Record<string, number>)["input_tokens"] ?? 0,
-          output: (parsed["usage"] as Record<string, number>)["output_tokens"] ?? 0,
-          total: ((parsed["usage"] as Record<string, number>)["input_tokens"] ?? 0) +
-            ((parsed["usage"] as Record<string, number>)["output_tokens"] ?? 0),
-        } : undefined,
+        outputs: [],
+        handover_state: { raw_output: content },
+        ...(inputTokens > 0 || outputTokens > 0
+          ? {
+            tokens_used: {
+              input: inputTokens,
+              output: outputTokens,
+              total: inputTokens + outputTokens,
+            },
+          }
+          : {}),
       };
     } catch {
       // Non-JSON output — treat as completed with raw text handover

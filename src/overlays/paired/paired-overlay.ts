@@ -19,21 +19,26 @@ export class PairedOverlay implements BaseOverlay {
 
   async postTask(
     ctx: OverlayContext,
-    result: TaskResult,
+    _result: TaskResult,
   ): Promise<PostTaskOverlayResult> {
-    // Phase 1 stub — paired workflow is Phase 3
-    // Check if task's paired overlay is enabled
     const taskEnabled = ctx.task_definition.overlays?.paired?.enabled;
     if (!taskEnabled) {
       return { accept: true, new_status: "COMPLETED" };
     }
 
-    // In full implementation, this would:
-    // 1. Run challenger agent on same task
-    // 2. Compare driver vs challenger outputs
-    // 3. Return consensus or flag divergence
-
-    // Phase 1: pass-through
-    return { accept: true, new_status: "COMPLETED" };
+    // Paired workflow requires a second adapter dispatch (challenger agent).
+    // This overlay does not have direct adapter access — the driver/challenger
+    // pattern is a Phase 3 feature. Fail loudly rather than silently pass through,
+    // so configs with paired.enabled: true are not silently ignored.
+    this.emitter.emit("paired.not_implemented", {
+      task_id: ctx.task_id,
+      message: "Paired workflow is not yet implemented. Disable overlays.paired.enabled in this task's definition to proceed.",
+    });
+    return {
+      accept: false,
+      new_status: "NEEDS_REWORK",
+      feedback: "Paired overlay is not yet implemented (Phase 3). " +
+        "Set overlays.paired.enabled: false on this task to bypass.",
+    };
   }
 }

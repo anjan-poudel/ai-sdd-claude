@@ -11,7 +11,13 @@ import { StateManager } from "../../core/state-manager.ts";
 import { ConstitutionResolver } from "../../constitution/resolver.ts";
 import { createManifestWriter } from "../../constitution/manifest-writer.ts";
 import { Engine } from "../../core/engine.ts";
-import { MockAdapter } from "../../adapters/mock-adapter.ts";
+import { createAdapter } from "../../adapters/factory.ts";
+import { HilOverlay } from "../../overlays/hil/hil-overlay.ts";
+import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
+import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
+import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
+import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
+import { buildOverlayChain } from "../../overlays/composition-rules.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
 import { loadProjectConfig } from "../config-loader.ts";
 
@@ -34,15 +40,30 @@ export function registerRunCommand(program: Command): void {
 
       const config = loadProjectConfig(projectPath);
 
-      // Load workflow
+      // Load workflow — search order:
+      //   1. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
+      //   2. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
+      //   3. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
+      //   4. bundled framework default
       const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
-      const defaultWorkflowPath = resolve(
+      const configWorkflowName = config.workflow as string | undefined;
+      const configWorkflowPath = configWorkflowName
+        ? resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)
+        : null;
+      const initCopiedPath = resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml");
+      const bundledDefaultPath = resolve(
         new URL("../../../data/workflows/default-sdd.yaml", import.meta.url).pathname,
       );
-      const wfPath = existsSync(workflowPath) ? workflowPath : defaultWorkflowPath;
+      const wfPath = existsSync(workflowPath) ? workflowPath
+                   : (configWorkflowPath && existsSync(configWorkflowPath)) ? configWorkflowPath
+                   : existsSync(initCopiedPath) ? initCopiedPath
+                   : existsSync(bundledDefaultPath) ? bundledDefaultPath
+                   : null;
 
-      if (!existsSync(wfPath)) {
-        console.error(`No workflow.yaml found. Create .ai-sdd/workflow.yaml or run: ai-sdd init`);
+      if (!wfPath) {
+        console.error(
+          `No workflow found. Create .ai-sdd/workflow.yaml or run: ai-sdd init`,
+        );
         process.exit(1);
       }
 
@@ -84,8 +105,33 @@ export function registerRunCommand(program: Command): void {
         log_level: config.observability?.log_level ?? "INFO",
       });
 
-      // Adapter (Phase 1: use mock unless adapter.type configured)
-      const adapter = new MockAdapter();
+      // Adapter — instantiated from config.adapter.type
+      const adapter = createAdapter({
+        type: config.adapter?.type ?? "mock",
+        ...config.adapter,
+      });
+
+      // Overlay chain — built from project config in locked order
+      const hilQueuePath = resolve(
+        projectPath,
+        config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/",
+      );
+      const outputsDir = resolve(projectPath, ".ai-sdd", "outputs");
+      const overlayChain = buildOverlayChain({
+        hil: new HilOverlay(
+          {
+            enabled: config.overlays?.hil?.enabled ?? true,
+            poll_interval_ms: (config.overlays?.hil?.poll_interval_seconds ?? 5) * 1000,
+            notify: config.overlays?.hil?.notify,
+          },
+          hilQueuePath,
+          emitter,
+        ),
+        policy_gate: new PolicyGateOverlay(outputsDir, emitter),
+        review: new ReviewOverlay(emitter, { enabled: false }),
+        paired: new PairedOverlay(emitter, { enabled: false }),
+        confidence: new ConfidenceOverlay(emitter),
+      });
 
       // Engine
       const engine = new Engine(
@@ -101,6 +147,7 @@ export function registerRunCommand(program: Command): void {
           cost_budget_per_run_usd: config.engine?.cost_budget_per_run_usd,
           cost_enforcement: config.engine?.cost_enforcement,
         },
+        overlayChain,
       );
 
       const result = await engine.run({

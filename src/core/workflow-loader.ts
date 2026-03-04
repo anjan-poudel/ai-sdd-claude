@@ -4,8 +4,9 @@
  */
 import { z } from "zod";
 import yaml from "js-yaml";
-import { readFileSync } from "fs";
-import type { TaskDefinition, WorkflowConfig, ExecutionPlan, ParallelGroup } from "../types/index.ts";
+import { readFileSync, existsSync } from "fs";
+import type { TaskDefinition, TaskOverlays, WorkflowConfig, WorkflowDefaults, ExecutionPlan, ParallelGroup } from "../types/index.ts";
+import { ENGINE_TASK_DEFAULTS } from "../types/index.ts";
 
 // ─── Zod Schema ──────────────────────────────────────────────────────────────
 
@@ -37,19 +38,28 @@ const TaskOverlayReviewSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+const TaskOverlaysSchema = z.object({
+  hil: TaskOverlayHilSchema.optional(),
+  policy_gate: TaskOverlayPolicyGateSchema.optional(),
+  confidence: TaskOverlayConfidenceSchema.optional(),
+  paired: TaskOverlayPairedSchema.optional(),
+  review: TaskOverlayReviewSchema.optional(),
+});
+
+const WorkflowDefaultsSchema = z.object({
+  overlays: TaskOverlaysSchema.optional(),
+  max_rework_iterations: z.number().int().positive().optional(),
+  exit_conditions: z.array(z.string()).optional(),
+});
+
 const TaskDefinitionSchema = z.object({
-  agent: z.string().min(1, "agent is required"),
-  description: z.string().min(1, "description is required"),
+  use: z.string().optional(),
+  agent: z.string().optional(),            // optional here; validated after resolution
+  description: z.string().optional(),      // optional here; may come from template; validated after resolution
   depends_on: z.array(z.string()).optional(),
   outputs: z.array(TaskOutputSchema).optional(),
   exit_conditions: z.array(z.string()).optional(),
-  overlays: z.object({
-    hil: TaskOverlayHilSchema.optional(),
-    policy_gate: TaskOverlayPolicyGateSchema.optional(),
-    confidence: TaskOverlayConfidenceSchema.optional(),
-    paired: TaskOverlayPairedSchema.optional(),
-    review: TaskOverlayReviewSchema.optional(),
-  }).optional(),
+  overlays: TaskOverlaysSchema.optional(),
   max_rework_iterations: z.number().int().positive().optional(),
 }).passthrough();
 
@@ -57,8 +67,33 @@ const WorkflowConfigSchema = z.object({
   version: z.string(),
   name: z.string().min(1, "name is required"),
   description: z.string().optional(),
+  defaults: WorkflowDefaultsSchema.optional(),
   tasks: z.record(z.string(), TaskDefinitionSchema),
 });
+
+/** Schema for task library template files. */
+const LibraryTemplateSchema = z.object({
+  name: z.string(),
+  agent: z.string().min(1, "agent is required in library template"),
+  description: z.string().optional(),  // optional in template; validated post-merge
+  outputs: z.array(TaskOutputSchema).optional(),
+  exit_conditions: z.array(z.string()).optional(),
+  overlays: TaskOverlaysSchema.optional(),
+  max_rework_iterations: z.number().int().positive().optional(),
+});
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Per-overlay-key merge: keys from `override` replace matching keys in `base`. */
+function deepMergeOverlays(base: TaskOverlays, override: TaskOverlays): TaskOverlays {
+  const result = { ...base };
+  for (const key of Object.keys(override) as (keyof TaskOverlays)[]) {
+    if (override[key] !== undefined) {
+      result[key] = { ...(base[key] ?? {}), ...(override[key] ?? {}) } as never;
+    }
+  }
+  return result;
+}
 
 // ─── WorkflowGraph ────────────────────────────────────────────────────────────
 
@@ -136,15 +171,15 @@ export class WorkflowLoader {
    * Load a workflow from a YAML file.
    * Validates schema, parses DSL expressions, detects cycles.
    */
-  static loadFile(filePath: string): WorkflowGraph {
+  static loadFile(filePath: string, libraryDir?: string): WorkflowGraph {
     const raw = readFileSync(filePath, "utf-8");
-    return WorkflowLoader.loadYAML(raw);
+    return WorkflowLoader.loadYAML(raw, libraryDir);
   }
 
   /**
    * Load a workflow from a YAML string.
    */
-  static loadYAML(content: string): WorkflowGraph {
+  static loadYAML(content: string, libraryDir?: string): WorkflowGraph {
     const parsed = yaml.load(content) as unknown;
     const result = WorkflowConfigSchema.safeParse(parsed);
     if (!result.success) {
@@ -155,7 +190,20 @@ export class WorkflowLoader {
       );
     }
 
-    const config = result.data as WorkflowConfig;
+    const raw = result.data as WorkflowConfig;
+
+    // Resolve each task: engine defaults → workflow defaults → library template → inline
+    const resolvedTaskMap: Record<string, Omit<TaskDefinition, "id">> = {};
+    for (const [taskId, rawTask] of Object.entries(raw.tasks)) {
+      resolvedTaskMap[taskId] = WorkflowLoader.resolveTask(
+        taskId,
+        rawTask,
+        raw.defaults,
+        libraryDir ?? WorkflowLoader.defaultLibraryDir(),
+      );
+    }
+
+    const config: WorkflowConfig = { ...raw, tasks: resolvedTaskMap };
 
     // Validate DSL expressions in exit_conditions
     WorkflowLoader.validateDSLExpressions(config);
@@ -167,6 +215,117 @@ export class WorkflowLoader {
     const plan = WorkflowLoader.buildExecutionPlan(config);
 
     return new WorkflowGraph(config, plan);
+  }
+
+  private static defaultLibraryDir(): string {
+    return new URL("../../data/task-library", import.meta.url).pathname;
+  }
+
+  /**
+   * Merge engine defaults → workflow defaults → library template → task inline.
+   * Produces a fully resolved task definition with agent and description guaranteed.
+   */
+  private static resolveTask(
+    taskId: string,
+    inline: Omit<TaskDefinition, "id">,
+    workflowDefaults: WorkflowDefaults | undefined,
+    libraryDir: string,
+  ): Omit<TaskDefinition, "id"> {
+    // Layer 1: engine built-in defaults
+    let resolved: Partial<Omit<TaskDefinition, "id">> = {
+      overlays: deepMergeOverlays({}, ENGINE_TASK_DEFAULTS.overlays ?? {}),
+      max_rework_iterations: ENGINE_TASK_DEFAULTS.max_rework_iterations,
+    };
+
+    // Layer 2: workflow defaults
+    if (workflowDefaults) {
+      if (workflowDefaults.overlays) {
+        resolved.overlays = deepMergeOverlays(resolved.overlays ?? {}, workflowDefaults.overlays);
+      }
+      if (workflowDefaults.max_rework_iterations !== undefined) {
+        resolved.max_rework_iterations = workflowDefaults.max_rework_iterations;
+      }
+      if (workflowDefaults.exit_conditions?.length) {
+        resolved.exit_conditions = [...workflowDefaults.exit_conditions];
+      }
+    }
+
+    // Layer 3: task library template (if use: present)
+    if (inline.use) {
+      const template = WorkflowLoader.loadLibraryTemplate(inline.use, libraryDir);
+      resolved.agent = template.agent;
+      if (template.description) resolved.description = template.description;
+      if (template.outputs) resolved.outputs = template.outputs;
+      if (template.exit_conditions?.length) {
+        resolved.exit_conditions = [
+          ...(resolved.exit_conditions ?? []),
+          ...template.exit_conditions,
+        ];
+      }
+      if (template.overlays) {
+        resolved.overlays = deepMergeOverlays(resolved.overlays ?? {}, template.overlays);
+      }
+      if (template.max_rework_iterations !== undefined) {
+        resolved.max_rework_iterations = template.max_rework_iterations;
+      }
+    }
+
+    // Layer 4: task inline definition (always wins)
+    if (inline.agent) resolved.agent = inline.agent;
+    if (inline.description) resolved.description = inline.description;
+    if (inline.depends_on) resolved.depends_on = inline.depends_on;
+    if (inline.outputs) resolved.outputs = inline.outputs;
+    if (inline.exit_conditions?.length) {
+      resolved.exit_conditions = [
+        ...(resolved.exit_conditions ?? []),
+        ...inline.exit_conditions,
+      ];
+    }
+    if (inline.overlays) {
+      resolved.overlays = deepMergeOverlays(resolved.overlays ?? {}, inline.overlays);
+    }
+    if (inline.max_rework_iterations !== undefined) {
+      resolved.max_rework_iterations = inline.max_rework_iterations;
+    }
+
+    // Substitute {{task_id}} in output paths
+    if (resolved.outputs) {
+      resolved.outputs = resolved.outputs.map((o) => ({
+        ...o,
+        path: o.path.replace(/\{\{task_id\}\}/g, taskId),
+      }));
+    }
+
+    // Validate required fields after full resolution
+    if (!resolved.agent) {
+      throw new Error(
+        `Task '${taskId}': agent is required — specify it inline or via use:`,
+      );
+    }
+    if (!resolved.description) {
+      throw new Error(
+        `Task '${taskId}': description is required — specify it inline or add it to the library template`,
+      );
+    }
+
+    return resolved as Omit<TaskDefinition, "id">;
+  }
+
+  private static loadLibraryTemplate(name: string, libraryDir: string): z.infer<typeof LibraryTemplateSchema> {
+    const filePath = `${libraryDir}/${name}.yaml`;
+    if (!existsSync(filePath)) {
+      throw new Error(`Task library template '${name}' not found (looked in ${libraryDir})`);
+    }
+    const raw = yaml.load(readFileSync(filePath, "utf-8")) as unknown;
+    const result = LibraryTemplateSchema.safeParse(raw);
+    if (!result.success) {
+      throw new Error(
+        `Task library template '${name}' is invalid:\n${result.error.errors
+          .map((e) => `  ${e.path.join(".")}: ${e.message}`)
+          .join("\n")}`,
+      );
+    }
+    return result.data;
   }
 
   private static validateDSLExpressions(config: WorkflowConfig): void {

@@ -41,6 +41,7 @@ Feature: Human documentation
     When they read docs/USER_GUIDE.md
     Then each integration has setup steps using `ai-sdd init --tool <name>`
     And each integration has a concrete daily usage loop
+    And the guide includes dedicated sections: "Using Claude Code", "Using Codex CLI", and "Using Roo Code"
     And Roo Code guidance includes MCP server startup and mode usage
 
   Scenario: Documentation includes troubleshooting
@@ -73,6 +74,10 @@ Feature: Human documentation
   - Claude Code
   - Codex CLI
   - Roo Code (including MCP server flow)
+- Dedicated operator sections:
+  - `## Using Claude Code`
+  - `## Using Codex CLI`
+  - `## Using Roo Code`
 - Daily operation loop (run, inspect, resolve HIL, rerun)
 - Safe completion flow (`ai-sdd complete-task` + gap audit behavior)
 - Troubleshooting and recovery cookbook

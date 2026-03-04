@@ -1,0 +1,11 @@
+name: design-component
+agent: pe
+description: |
+  Produce L2 component design documents. Define component interfaces,
+  data models, error handling strategy, and observability approach.
+overlays:
+  hil:         { enabled: false }   # PE works under the architect's approved design
+  policy_gate: { risk_tier: T0 }    # acceptance: document must be present
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: component_design_l2

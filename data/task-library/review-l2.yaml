@@ -1,0 +1,13 @@
+name: review-l2
+agent: reviewer
+description: |
+  Review the L2 component design. Verify component interfaces are correct,
+  data models are complete, and the design aligns with L1 architecture.
+  Issue GO/NO_GO decision.
+overlays:
+  hil:         { enabled: false }
+  review:      { enabled: true }
+  policy_gate: { risk_tier: T1 }
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

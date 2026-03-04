@@ -15,8 +15,10 @@
 | [ROADMAP.md](ROADMAP.md) | Milestones, task groups, effort, critical path, MVP gate |
 | [GAPS-ANALYSIS.md](GAPS-ANALYSIS.md) | 10 gaps found + solutions + prioritized remediation |
 | [TASK-VISUALIZATION.md](TASK-VISUALIZATION.md) | Full task dependency graph + greenfield & brownfield project walkthroughs |
-| [CONTRACTS.md](CONTRACTS.md) | Canonical contracts appendix: tool names, task states, idempotency keys, CLI flags, transaction boundaries |
-| [PRE-IMPLEMENTATION-GATE.md](PRE-IMPLEMENTATION-GATE.md) | Pre-implementation gate — 24 checks from 3 reviews. Must PASS before Phase 1 begins. |
+| [CONTRACTS.md](CONTRACTS.md) | Canonical contracts appendix: tool names, task states, idempotency keys, CLI flags, transaction boundaries, development invariants (§13) |
+| [PRE-IMPLEMENTATION-GATE.md](PRE-IMPLEMENTATION-GATE.md) | Pre-implementation gate — 30 checks (24 original + 6 gap-prevention). Must PASS before Phase 1 begins. |
+| [GAP-FIXES-SPRINT-AB.md](GAP-FIXES-SPRINT-AB.md) | Post-implementation gap fixes — all 24 gaps; 20 fixed across Sprints A–D, 4 deferred. Canonical fix reference. |
+| [GAP-RETROSPECTIVE.md](GAP-RETROSPECTIVE.md) | Root-cause analysis of all 24 gaps; 6 prevention patterns; development standards going forward. |
 | [REVIEW-FEEDBACK.md](REVIEW-FEEDBACK.md) | Codex review — 9 findings, all addressed |
 | [GEMINI-REVIEW.md](GEMINI-REVIEW.md) | Gemini review — 6 findings, all addressed |
 | [deepseek-review.md](deepseek-review.md) | DeepSeek review — 10 action items, all addressed |
@@ -47,6 +49,7 @@
 | [T012](tasks/T012-expression-dsl.md) | Expression DSL + Safe Evaluator | S (4d) | New |
 | [T013](tasks/T013-artifact-contract.md) | Artifact Contract + I/O Schema | S (4d) | New |
 | [T016](tasks/T016-constitution-artifact-manifest.md) | Constitution Artifact Manifest Writer | XS (2d) | New |
+| [T022](tasks/T022-workflow-defaults-and-task-library.md) | Workflow Defaults + Task Library | S (3d) | **New**: convention over config; `defaults:`, `use:`, engine built-in defaults |
 
 ## Tasks — Phase 2: Overlay Suite
 
@@ -67,6 +70,7 @@
 | [T018](tasks/T018-claude-code-integration.md) | Claude Code Native Integration | S (4d) | New |
 | [T019](tasks/T019-codex-integration.md) | OpenAI / Codex Integration | M (4d) | New |
 | [T020](tasks/T020-roo-code-integration.md) | Roo Code Native Integration | M (5d) | New |
+| [T023](tasks/T023-project-scaffolding.md) | Project Scaffolding — `/sdd-scaffold` skill + subagent + CLI | M (5d) | New |
 
 ---
 
@@ -79,6 +83,7 @@
 | [T012](tasks/T012-expression-dsl.md) | Expression DSL + Safe Evaluator | S (4d) | Formal grammar; no `eval()`; golden corpus |
 | [T013](tasks/T013-artifact-contract.md) | Artifact Contract + I/O Schema | S (4d) | Versioned typed task outputs; compatibility checks |
 | [T016](tasks/T016-constitution-artifact-manifest.md) | Constitution Artifact Manifest | XS (2d) | Engine writes artifact index into constitution; agents pull via native tools |
+| [T022](tasks/T022-workflow-defaults-and-task-library.md) | Workflow Defaults + Task Library | S (3d) | Convention over config; `defaults:` block; `use:` task library; engine built-ins |
 
 *(T011 enhanced: add `run_id`, `task_run_id`, cost/token metrics — update inherited T011)*
 
@@ -97,6 +102,7 @@
 | [T018](tasks/T018-claude-code-integration.md) | Claude Code Native Integration | S (4d) | Slash commands + CLAUDE.md; adapter for headless/CI only |
 | [T019](tasks/T019-codex-integration.md) | OpenAI / Codex Integration | M (4d) | AGENTS.md template; OpenAIAdapter; shared tool schemas; no Jinja2 |
 | [T020](tasks/T020-roo-code-integration.md) | Roo Code Native Integration | M (5d) | Static `.roomodes` template; shared MCP server; no generate_modes.py |
+| [T023](tasks/T023-project-scaffolding.md) | Project Scaffolding | M (5d) | `/sdd-scaffold` skill + `sdd-scaffold` subagent + `ai-sdd scaffold` CLI; generates constitution.md, ai-sdd.yaml, init-report.md |
 
 ---
 
@@ -115,7 +121,8 @@ T003 ──┘              │
                       ├──► T011 (Observability)
                       ├──► T012 (Expression DSL)  ← required before loops run
                       ├──► T013 (Artifact Contract)
-                      └──► T016 (Manifest Writer)
+                      ├──► T016 (Manifest Writer)
+                      └──► T022 (Workflow Defaults + Task Library)
 ```
 
 T000 is the pre-implementation gate — verified against PRE-IMPLEMENTATION-GATE.md.
@@ -135,12 +142,13 @@ T011 ──► T017 (Security)
 ### Phase 3 (Native Integration) — parallel with Phase 4
 
 ```
-T010 (CLI complete) ──► T018 (Claude Code)
+T010 (CLI complete) ──► T018 (Claude Code) ──► T023 (Scaffolding)
                     ──► T019 (Codex)
                     ──► T020 (Roo Code)
 ```
 
 T018/T019/T020 can run in parallel after the CLI is stable.
+T023 depends on T018 (uses Claude Code skill/subagent infrastructure) and T010 (CLI command).
 
 ---
 

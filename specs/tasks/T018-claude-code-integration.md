@@ -1,7 +1,7 @@
 # T018: Claude Code Native Integration
 
 **Phase:** 3 (Native Integration)
-**Status:** PENDING
+**Status:** IN_PROGRESS
 **Dependencies:** T010 (CLI + config), Phase 1 complete
 **Size:** S (4 days)
 
@@ -47,7 +47,7 @@ sdd-run skill (context: fork — isolated subagent context):
   5. Asks: "Continue to next task?"
 
 Headless / CI:
-  ai-sdd engine → ClaudeCodeAdapter → subprocess `claude --print --prompt-file`
+  ai-sdd engine → ClaudeCodeAdapter → Bun.spawn(['claude', '--print', '--output-format', 'json', <brief>])
 ```
 
 ---
@@ -89,8 +89,9 @@ Feature: Claude Code native integration
   Scenario: Headless adapter for CI
     Given ai-sdd running in CI with adapter: claude_code
     When a task is dispatched
-    Then ClaudeCodeAdapter calls `claude --print --prompt-file <path>` as a subprocess
-    And captures the output as the task result
+    Then ClaudeCodeAdapter calls Bun.spawn with args ["claude", "--print", "--output-format", "json", <brief>]
+    And parses the JSON output as the task result
+    And falls back to raw-text handover_state if output is not valid JSON
 ```
 
 ---
@@ -149,8 +150,81 @@ When your output is written:
 Do NOT write implementation code or database migrations.
 ```
 
-*(sdd-pe, sdd-le, sdd-dev, sdd-reviewer follow the same pattern — role-specific
-instructions + `ai-sdd run --task <id>` at the end.)*
+**`.claude/agents/sdd-pe.md`**
+```yaml
+---
+name: sdd-pe
+description: Principal Engineer — produces component-design-l2.md from L1 architecture
+tools: Read, Write, Bash, Glob, Grep
+---
+You are the Principal Engineer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/architecture-l1.md.
+3. Write .ai-sdd/outputs/component-design-l2.md covering:
+   - Component interfaces and contracts
+   - Data models and database schemas
+   - Error handling and observability strategy
+   - Performance and security implementation patterns
+   - Technical risks and mitigations
+
+When your output is written:
+- Run `ai-sdd run --task design-l2` via Bash.
+- Return a summary of key component design decisions.
+
+Do NOT write implementation code or database migrations.
+```
+
+**`.claude/agents/sdd-le.md`**
+```yaml
+---
+name: sdd-le
+description: Lead Engineer — produces task-breakdown-l3.md from L2 component designs
+tools: Read, Write, Bash, Glob, Grep
+---
+You are the Lead Engineer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/component-design-l2.md.
+3. Write .ai-sdd/outputs/task-breakdown-l3.md covering:
+   - Concrete implementation tasks with clear acceptance criteria
+   - Task dependency ordering and critical path
+   - Effort estimates and risk flags
+   - CI/CD and code review requirements
+
+When your output is written:
+- Run `ai-sdd run --task plan-tasks` via Bash.
+- Return a summary: number of tasks, critical path, key risks.
+
+Do NOT write implementation code.
+```
+
+**`.claude/agents/sdd-dev.md`**
+```yaml
+---
+name: sdd-dev
+description: Developer — implements features and writes tests per task specification
+tools: Read, Write, Edit, Bash, Glob, Grep
+---
+You are the Developer in an ai-sdd workflow.
+
+Your job:
+1. Read constitution.md — note the artifact manifest for available inputs.
+2. Read .ai-sdd/outputs/task-breakdown-l3.md for task specification.
+3. Implement the features:
+   - Write production code meeting all acceptance criteria
+   - Write unit and integration tests (≥80% coverage for new code)
+   - Ensure all Gherkin acceptance criteria pass
+   - Fix lint, type errors, and security issues before submitting
+4. Write .ai-sdd/outputs/implementation-summary.md: what was built, test results, any
+   decisions made during implementation.
+
+When your output is written:
+- Run `ai-sdd run --task implement` via Bash.
+- Return a summary: features implemented, test coverage, any open issues.
+```
 
 **`.claude/agents/sdd-reviewer.md`**
 ```yaml
@@ -255,18 +329,47 @@ See `constitution.md` for project purpose, rules, standards, and the artifact ma
 
 ### 5. ClaudeCodeAdapter (headless/CI only)
 
-```python
-class ClaudeCodeAdapter(RuntimeAdapter):
-    """Headless/CI use only. Interactive sessions use /sdd-run skill + subagents."""
-    def dispatch(self, task: Task, context: AgentContext,
-                 operation_id: str, attempt_id: str) -> TaskResult:
-        prompt_path = self._write_prompt_file(task, context)
-        result = subprocess.run(
-            ["claude", "--print", "--prompt-file", str(prompt_path)],
-            capture_output=True, text=True, timeout=self.timeout_seconds
-        )
-        return self._parse_result(result, task)
+**File:** `src/adapters/claude-code-adapter.ts`
+
+Interactive sessions use the `/sdd-run` skill + subagents — the adapter is only for
+headless/CI execution where the engine drives the workflow programmatically.
+
+**Dispatch modes:**
+
+- `delegation` (default) — engine sends a lightweight task brief; the Claude CLI agent
+  manages its own context by reading `constitution.md` and artifacts via its tools:
+  ```
+  Task ID: <id>
+  Operation ID: <op>
+
+  Description: <task.description>
+
+  Expected outputs:
+    - <output.path>
+
+  When complete, run: ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp>
+  ```
+
+- `direct` — engine builds a full prompt (constitution + task description + operation ID)
+  and sends it to the CLI. Used when the Claude CLI agent has no access to the project
+  filesystem.
+
+**CLI invocation:**
 ```
+claude --print --output-format json <brief>
+```
+`--print` = non-interactive, `--output-format json` = structured output for token usage parsing.
+
+**Output parsing:**
+- If JSON: extract `outputs`, `handover_state`, token usage from `usage.input_tokens`/`usage.output_tokens`
+- If non-JSON: `status: COMPLETED`, `handover_state: { raw_output: <stdout> }`
+
+**Error handling:**
+- Exit code ≠ 0 → `ToolError`
+- Timeout exceeded → `TimeoutError`
+- `claude` not on PATH → caught at `healthCheck()` time; falls back to `MockAdapter` in tests
+
+**Defaults:** `dispatch_mode: "delegation"`, `timeout_ms: 300_000` (5 min)
 
 ---
 
@@ -297,30 +400,49 @@ constitution.md          ← blank template (developer fills in)
 
 ## Files to Create
 
-- `integration/claude_code/agents/sdd-ba.md`
-- `integration/claude_code/agents/sdd-architect.md`
-- `integration/claude_code/agents/sdd-pe.md`
-- `integration/claude_code/agents/sdd-le.md`
-- `integration/claude_code/agents/sdd-dev.md`
-- `integration/claude_code/agents/sdd-reviewer.md`
-- `integration/claude_code/skills/sdd-run/SKILL.md`
-- `integration/claude_code/skills/sdd-status/SKILL.md`
-- `integration/claude_code/CLAUDE.md.template`
-- `integration/claude_code/README.md`
-- `adapters/claude_code_adapter.py` (headless path only)
-- `tests/integration/test_claude_code_adapter.py`
+Template source files (shipped with the framework, copied by `init`):
+
+- `data/integration/claude-code/agents/sdd-ba.md`
+- `data/integration/claude-code/agents/sdd-architect.md`
+- `data/integration/claude-code/agents/sdd-pe.md`
+- `data/integration/claude-code/agents/sdd-le.md`
+- `data/integration/claude-code/agents/sdd-dev.md`
+- `data/integration/claude-code/agents/sdd-reviewer.md`
+- `data/integration/claude-code/skills/sdd-run/SKILL.md`
+- `data/integration/claude-code/skills/sdd-status/SKILL.md`
+- `data/integration/claude-code/CLAUDE.md.template`
+- `src/adapters/claude-code-adapter.ts` (headless/CI path only)
+- `tests/adapters/claude-code-adapter.test.ts`
+
+**`init` command must copy files, not just print a note.** The `installClaudeCode`
+function in `src/cli/commands/init.ts` must:
+1. Resolve `dataDir` via `new URL("../../../data/integration/claude-code", import.meta.url)`
+   (consistent with how `run.ts` and `validate-config.ts` resolve `data/` paths)
+2. Copy all 6 agent `.md` files from `dataDir/agents/` → `.claude/agents/`
+3. Copy `sdd-run/SKILL.md` and `sdd-status/SKILL.md` from `dataDir/skills/` → `.claude/skills/`
+4. Copy `CLAUDE.md.template` → append to project `CLAUDE.md` (or create if absent)
+5. Copy `data/workflows/default-sdd.yaml` → `.ai-sdd/workflows/default-sdd.yaml`
+6. Create blank `constitution.md` if absent (not overwrite)
 
 ---
 
 ## Test Strategy
 
-- Unit tests: `ClaudeCodeAdapter` writes correct prompt file format.
-- Unit tests: `ai-sdd init --tool claude_code` copies all agent + skill files.
-- Integration test: `/sdd-run` skill spawns correct subagent per task type.
-- Integration test: HIL item surfaced inline; resolved without manual CLI command.
-- Manual validation: Run full BA → Architect workflow in Claude Code — zero manual `ai-sdd` commands typed.
+**`tests/adapters/claude-code-adapter.test.ts`** (unit — no real CLI invocation):
+- `delegation` mode brief contains task_id, operation_id, description, output paths, complete-task command
+- `direct` mode prompt contains constitution, task description, operation_id
+- `dispatch_mode` defaults to `"delegation"`
+- `parseOutput` correctly extracts status/outputs/tokens from JSON
+- `parseOutput` falls back to `{ raw_output }` for non-JSON stdout
+- `healthCheck` returns false when `claude` not on PATH
+
+**`tests/adapters/mock-adapter.test.ts`** (existing):
+- Covers retry logic in the base adapter (shared by all adapters including ClaudeCodeAdapter)
+
+**Manual validation:**
+- Run full BA → Architect workflow in Claude Code with `/sdd-run` — zero manual `ai-sdd` commands typed.
 
 ## Rollback/Fallback
 
-- If `claude` binary not in PATH: `ClaudeCodeAdapter` raises clear error; falls back to MockAdapter in tests.
-- If agent or skill files already exist: `ai-sdd init` prompts before overwriting.
+- If `claude` binary not on PATH: `healthCheck()` returns false; tests use `MockAdapter`.
+- If agent or skill files already exist: `ai-sdd init` skips without overwriting (idempotent).

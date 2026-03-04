@@ -19,8 +19,9 @@
 9. [Evidence Gate](#evidence-gate)
 10. [CLI Command Reference](#cli-command-reference)
 11. [Adapter Configuration](#adapter-configuration)
-12. [Security](#security)
-13. [Troubleshooting](#troubleshooting)
+12. [Integration Guides](#integration-guides)
+13. [Security](#security)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -52,16 +53,29 @@ File-based queue of items awaiting human review. Agents pause at `HIL_PENDING` u
 
 ```
 your-project/
-├── constitution.md          # or CLAUDE.md — project context
+├── constitution.md          # Project context for agents (created by init)
+├── CLAUDE.md                # Claude Code orientation (appended by init)
 ├── .ai-sdd/
 │   ├── ai-sdd.yaml          # Project config
-│   ├── workflow.yaml        # Workflow definition
+│   ├── workflow.yaml        # Custom workflow (optional — overrides workflows/)
+│   ├── workflows/
+│   │   └── default-sdd.yaml # Default SDD workflow (copied by init, edit freely)
 │   ├── agents/              # Custom agent overrides (optional)
 │   ├── state/               # Runtime state (auto-managed)
 │   │   ├── workflow-state.json
 │   │   └── hil/             # HIL queue items
 │   └── outputs/             # Task artifacts
+.claude/                     # Created by init --tool claude_code
+├── agents/                  # sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer
+└── skills/
+    ├── sdd-run/SKILL.md     # /sdd-run — full workflow loop
+    └── sdd-status/SKILL.md  # /sdd-status — progress table
 ```
+
+**Workflow lookup order** (first found wins):
+1. `.ai-sdd/workflow.yaml` — explicit single-file override
+2. `.ai-sdd/workflows/default-sdd.yaml` — copied by `ai-sdd init`
+3. Bundled framework default
 
 ### Minimal `ai-sdd.yaml`
 
@@ -89,30 +103,156 @@ overlays:
 
 ## Workflow YAML Reference
 
+### Minimal workflow
+
+```yaml
+version: "1"
+name: my-workflow
+
+tasks:
+  implement:
+    use: standard-implement
+    depends_on: []
+
+  review:
+    use: standard-review
+    depends_on: [implement]
+```
+
+This 6-line workflow is complete. Every template provides `agent`, `description`,
+`overlays`, and `outputs`. Override any field inline when you need workflow-specific
+context — omit it to use the template default.
+
+### Full reference
+
 ```yaml
 version: "1"
 name: my-workflow
 description: "Optional description"
 
+# Workflow-level defaults — applied to every task; override per-task as needed
+defaults:
+  overlays:
+    hil:         { enabled: false }   # e.g. disable HIL workflow-wide
+    policy_gate: { risk_tier: T1 }    # e.g. set a uniform risk tier
+  max_rework_iterations: 3
+
 tasks:
   <task-id>:
-    agent: <agent-name>            # Required
-    description: "What to do"     # Required
+    use: <library-template>        # Optional: pull from data/task-library/
+    agent: <agent-name>            # Required (or supplied by use:)
+    description: "What to do"     # Always required
     depends_on:                    # Optional
       - <other-task-id>
-    outputs:                       # Optional
+    outputs:                       # Optional (or supplied by use:)
       - path: relative/output.md
-        contract: requirements_doc  # Optional: artifact contract name
+        contract: requirements_doc
     exit_conditions:               # Optional: DSL expressions
       - "review.decision == GO"
-    overlays:                      # Optional: per-task overlay overrides
+    overlays:                      # Optional: override defaults or library values
       hil:
-        enabled: false             # Disable HIL for this task
+        enabled: true
       policy_gate:
-        risk_tier: T2              # Force T2 gate (always triggers HIL)
+        risk_tier: T2
       confidence:
         threshold: 0.90
-    max_rework_iterations: 3      # Default: 3
+    max_rework_iterations: 5
+```
+
+### Engine built-in defaults
+
+Every task starts with these values before workflow defaults or task overrides apply:
+
+| Field | Default |
+|---|---|
+| `overlays.hil.enabled` | `true` |
+| `overlays.policy_gate.risk_tier` | `T1` |
+| `max_rework_iterations` | `3` |
+
+### Merge order (later wins)
+
+```
+engine built-ins → workflow defaults: → task library template (use:) → task inline
+```
+
+Overlay keys merge individually — setting `hil.enabled: false` does not clobber
+`policy_gate.risk_tier`.
+
+### Task Library (`use:`)
+
+Bundled templates in `data/task-library/`. Templates define the invariant properties
+of each task type (agent role, output contract). Policy overlays (HIL, risk tier) are
+left to the workflow `defaults:` or per-task overrides — templates stay composable.
+
+**Role primitives** — provide agent, contract and sensible defaults; policy set by workflow:
+
+| Template | Agent | HIL | Risk | Contract |
+|---|---|---|---|---|
+| `define-requirements` | `ba` | on | T0 | `requirements_doc` |
+| `design-architecture` | `architect` | on | T0 | `architecture_l1` |
+| `design-component` | `pe` | off | T0 | `component_design_l2` |
+| `plan-tasks` | `le` | off | T0 | `task_breakdown_l3` |
+| `standard-implement` | `dev` | off | T1 | `implementation` |
+| `standard-review` | `reviewer` | off | T1 | `review_report` |
+
+**Named workflow stages** — complete task definitions; use directly by task ID:
+
+| Template | Semantic | HIL | Risk | Contract |
+|---|---|---|---|---|
+| `review-l1` | L1 architecture review | off | T1 | `review_report` |
+| `review-l2` | L2 component design review | off | T1 | `review_report` |
+| `review-implementation` | Final code review | off | T1 | `review_report` |
+| `security-design-review` | Security-focused design audit | off | T1 | `review_report` |
+| `security-test` | Security testing pass | off | T1 | `review_report` |
+| `final-sign-off` | T2 mandatory production gate | off | **T2** | `review_report` |
+
+Every template provides a default `description`. Override inline to add workflow-specific
+context for the LLM; omit to use the template default.
+
+Output paths use `{{task_id}}` substitution: a task named `design-l1` gets
+`.ai-sdd/outputs/design-l1.md`, `design-component-a` gets
+`.ai-sdd/outputs/design-component-a.md`, etc.
+
+A task using `use:` may omit `description` (uses template default), `agent`, `outputs`,
+and `overlays` (all inherited from the template, merged with workflow defaults).
+
+`depends_on` is always per-workflow — never part of a template.
+
+**Parallel components → parallel reviews.** When a workflow has N parallel implementation
+tasks, give each its own review task rather than a single combined review. Each review is
+smaller, more focused, and can run in parallel with the others:
+
+```yaml
+  review-component-a:
+    use: review-implementation
+    depends_on: [implement-component-a]
+
+  review-component-b:
+    use: review-implementation
+    depends_on: [implement-component-b]    # parallel with review-component-a
+```
+
+**Override examples:**
+
+```yaml
+tasks:
+  # Override outputs — api-first produces two files instead of one
+  design-api:
+    use: design-architecture
+    description: "Produce OpenAPI spec and design doc."
+    depends_on: [define-requirements]
+    outputs:
+      - path: .ai-sdd/outputs/openapi.yaml
+      - path: .ai-sdd/outputs/api-design.md
+
+  # Override overlays — regulated workflow needs T2 on architecture
+  design-l1:
+    use: design-architecture
+    description: "Produce L1 architecture with security considerations."
+    depends_on: [define-requirements]
+    overlays:
+      hil:         { enabled: true }
+      policy_gate: { risk_tier: T2 }
 ```
 
 ### Dependency Rules
@@ -431,7 +571,7 @@ ai-sdd hil reject <id> [--reason <text>] [--project <dir>]
 ai-sdd validate-config [--project <dir>]
 ```
 
-Validates: `ai-sdd.yaml`, `workflow.yaml`, default agents, project agents.
+Validates: `ai-sdd.yaml`, workflow YAML (including `use:` and `defaults:` resolution), default agents, project agents.
 
 ### `constitution`
 
@@ -488,6 +628,65 @@ adapter:
 ```
 
 For testing. Always returns COMPLETED with empty outputs.
+
+---
+
+## Integration Guides
+
+Choose one integration per project UX (runtime adapter can still differ).
+
+### Using Claude Code
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool claude_code --project /path/to/project
+```
+
+This creates the following files in the project:
+- `.claude/agents/` — six subagents (sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer)
+- `.claude/skills/sdd-run/SKILL.md` — orchestrating skill that drives the full workflow
+- `.claude/skills/sdd-status/SKILL.md` — progress table skill
+- `CLAUDE.md` — ai-sdd orientation section appended (or created)
+- `constitution.md` — blank template; fill in your project purpose and standards
+- `.ai-sdd/workflows/default-sdd.yaml` — default workflow; edit to customise
+
+2. Fill in `constitution.md` with your project context.
+3. Open the project in Claude Code.
+4. Type `/sdd-run` to start the autonomous workflow loop. The skill identifies the next task, spawns the correct agent, handles HIL approvals inline, and loops — no manual `ai-sdd` commands needed.
+5. Type `/sdd-status` to check progress at any time.
+
+### Using Codex CLI
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool codex --project /path/to/project
+```
+
+2. Start `codex` from the project root (it reads `AGENTS.md`).
+3. Follow the same operator loop:
+   - `ai-sdd status --next --json`
+   - `ai-sdd run --resume`
+   - `ai-sdd hil list --json`
+4. Continue until no READY tasks remain.
+
+### Using Roo Code
+
+1. Initialize integration:
+
+```bash
+ai-sdd init --tool roo_code --project /path/to/project
+```
+
+2. Start MCP server:
+
+```bash
+ai-sdd serve --mcp --port 3000
+```
+
+3. Open Roo Code and select a mode (`sdd-ba`, `sdd-architect`, `sdd-pe`, `sdd-le`, `sdd-dev`, `sdd-reviewer`).
+4. Execute tasks through MCP tools (`get_next_task`, `get_constitution`, `complete_task`, `list_hil_items`, `resolve_hil`).
 
 ---
 
@@ -582,19 +781,20 @@ schema version mismatch: expected '1', got '2'; run ai-sdd migrate
 ```
 → The state file or config was written by a different version. Run `ai-sdd migrate` (Phase 5).
 
-### No workflow.yaml found
+### No workflow found
 
 ```
-No workflow.yaml found. Create .ai-sdd/workflow.yaml or run: ai-sdd init
+No workflow found. Create .ai-sdd/workflow.yaml or run: ai-sdd init
 ```
-→ Run `ai-sdd init --tool <name>` first, then create `.ai-sdd/workflow.yaml`.
+→ Run `ai-sdd init --tool <name>` first. This copies `default-sdd.yaml` to
+`.ai-sdd/workflows/`. To use a custom workflow, create `.ai-sdd/workflow.yaml`.
 
 ### Dependency cycle
 
 ```
 Workflow contains a dependency cycle involving tasks: task-a, task-b
 ```
-→ Fix the `depends_on` chains in `workflow.yaml`.
+→ Fix the `depends_on` chains in your workflow YAML.
 
 ### DSL parse error at load
 

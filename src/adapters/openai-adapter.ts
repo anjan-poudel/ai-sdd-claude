@@ -1,9 +1,16 @@
 /**
- * OpenAI adapter — Chat Completions with function calling.
+ * OpenAI adapter — Chat Completions, direct dispatch mode.
  * Requires `openai` optional peer dep.
+ *
+ * When the task declares outputs, the adapter asks the model to return a JSON
+ * envelope containing file content for each declared path.  It then writes
+ * those files atomically (tmp+rename) so the engine can record them in state.
+ * When no outputs are declared the raw response goes into handover_state.
  */
 
-import type { AgentContext, TaskResult, TokenUsage } from "../types/index.ts";
+import { writeFileSync, renameSync, mkdirSync, existsSync } from "fs";
+import { resolve, dirname } from "path";
+import type { AgentContext, TaskResult, TokenUsage, TaskOutput } from "../types/index.ts";
 import type { DispatchOptions } from "./base-adapter.ts";
 import { RuntimeAdapter } from "./base-adapter.ts";
 import { RateLimitError, ContextOverflowError, AuthError, ProviderError, wrapError } from "./errors.ts";
@@ -15,6 +22,11 @@ export interface OpenAIAdapterOptions {
   base_url?: string;
   timeout_ms?: number;
   organization?: string;
+}
+
+/** JSON envelope the model returns when outputs are declared. */
+interface FileEnvelope {
+  files: Array<{ path: string; content: string }>;
 }
 
 export class OpenAIAdapter extends RuntimeAdapter {
@@ -64,6 +76,9 @@ export class OpenAIAdapter extends RuntimeAdapter {
       };
     };
 
+    const declaredOutputs = context.task_definition.outputs ?? [];
+    const hasOutputs = declaredOutputs.length > 0;
+
     const systemPrompt = buildSystemPrompt({
       agent_persona: context.task_definition.description,
       agent_display_name: context.task_definition.agent,
@@ -71,19 +86,32 @@ export class OpenAIAdapter extends RuntimeAdapter {
       task_definition: context.task_definition,
     });
 
+    // When outputs are declared, append structured-output instructions so the
+    // model returns a parseable JSON envelope instead of free-form prose.
+    const outputInstruction = hasOutputs
+      ? [
+        "",
+        "## Required Response Format",
+        "Return ONLY a JSON object with this exact structure — no prose, no markdown fences:",
+        '{ "files": [{ "path": "<output_path>", "content": "<full_file_content>" }] }',
+        "Include exactly these output files:",
+        ...declaredOutputs.map((o) => `  - ${o.path}`),
+      ].join("\n")
+      : "";
+
     const model = this.options.model ?? "gpt-4o";
 
     try {
       const response = await client.chat.completions.create({
         model,
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPrompt + outputInstruction },
           {
             role: "user",
             content: `Complete task '${task_id}': ${context.task_definition.description}`,
           },
         ],
-        user: options.operation_id, // idempotency key
+        user: options.operation_id, // idempotency hint
       }) as {
         choices: Array<{ message: { content: string | null } }>;
         usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
@@ -92,17 +120,34 @@ export class OpenAIAdapter extends RuntimeAdapter {
       const content = response.choices[0]?.message?.content ?? "";
       const usage = response.usage;
 
-      const tokenUsage: TokenUsage | undefined = usage ? {
-        input: usage.prompt_tokens,
-        output: usage.completion_tokens,
-        total: usage.total_tokens,
-      } : undefined;
+      const tokenUsage: TokenUsage | undefined = usage
+        ? {
+          input: usage.prompt_tokens,
+          output: usage.completion_tokens,
+          total: usage.total_tokens,
+        }
+        : undefined;
 
+      // ── Structured output path ─────────────────────────────────────────────
+      if (hasOutputs && context.project_path) {
+        const written = this.writeOutputFiles(content, declaredOutputs, context.project_path);
+        if (written !== null) {
+          return {
+            status: "COMPLETED",
+            outputs: written,
+            handover_state: {},
+            ...(tokenUsage !== undefined && { tokens_used: tokenUsage }),
+          };
+        }
+        // Fall through to raw-output if parsing failed
+      }
+
+      // ── Raw-output fallback ────────────────────────────────────────────────
       return {
         status: "COMPLETED",
         outputs: [],
         handover_state: { raw_output: content },
-        tokens_used: tokenUsage,
+        ...(tokenUsage !== undefined && { tokens_used: tokenUsage }),
       };
     } catch (err) {
       const error = err as { status?: number; message?: string; code?: string };
@@ -120,5 +165,50 @@ export class OpenAIAdapter extends RuntimeAdapter {
       }
       throw wrapError(err);
     }
+  }
+
+  /**
+   * Parse the model's JSON envelope and write each file atomically.
+   * Returns the list of written TaskOutputs, or null if parsing fails.
+   */
+  private writeOutputFiles(
+    content: string,
+    declared: TaskOutput[],
+    projectPath: string,
+  ): TaskOutput[] | null {
+    // Strip optional markdown fences the model might wrap around JSON
+    const stripped = content.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+
+    let envelope: FileEnvelope;
+    try {
+      envelope = JSON.parse(stripped) as FileEnvelope;
+    } catch {
+      return null; // Model returned non-JSON — caller falls back to raw_output
+    }
+
+    if (!Array.isArray(envelope.files)) return null;
+
+    const written: TaskOutput[] = [];
+
+    for (const declared_output of declared) {
+      const file = envelope.files.find((f) => f.path === declared_output.path);
+      if (!file) continue;
+
+      const absPath = resolve(projectPath, file.path);
+      const dir = dirname(absPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+      // Atomic write: tmp + rename
+      const tmpPath = `${absPath}.tmp`;
+      writeFileSync(tmpPath, file.content, "utf-8");
+      renameSync(tmpPath, absPath);
+
+      written.push({
+        path: declared_output.path,
+        ...(declared_output.contract !== undefined && { contract: declared_output.contract }),
+      });
+    }
+
+    return written.length > 0 ? written : null;
   }
 }

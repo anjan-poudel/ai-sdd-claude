@@ -1,0 +1,12 @@
+name: review-implementation
+agent: reviewer
+description: |
+  Review the implementation. Check code quality, test coverage, security,
+  and conformance to the design. Issue GO/NO_GO decision.
+overlays:
+  hil:         { enabled: false }
+  review:      { enabled: true }
+  policy_gate: { risk_tier: T1 }
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: review_report

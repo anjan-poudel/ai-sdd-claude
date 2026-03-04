@@ -1,0 +1,11 @@
+name: plan-tasks
+agent: le
+description: |
+  Break down the component designs into concrete implementation tasks.
+  Define acceptance criteria per task, identify dependencies, and estimate effort.
+overlays:
+  hil:         { enabled: false }   # LE decomposes after reviews have passed
+  policy_gate: { risk_tier: T0 }    # acceptance: document must be present
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: task_breakdown_l3

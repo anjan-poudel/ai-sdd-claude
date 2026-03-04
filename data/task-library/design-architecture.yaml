@@ -1,0 +1,11 @@
+name: design-architecture
+agent: architect
+description: |
+  Produce the L1 system architecture document. Define system components,
+  technology stack, integration points, and key architectural decisions.
+overlays:
+  hil:         { enabled: true }    # architecture typically needs review before proceeding
+  policy_gate: { risk_tier: T0 }    # acceptance: document must be present
+outputs:
+  - path: ".ai-sdd/outputs/{{task_id}}.md"
+    contract: architecture_l1

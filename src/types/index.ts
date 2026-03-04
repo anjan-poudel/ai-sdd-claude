@@ -77,41 +77,61 @@ export interface TaskOutput {
   contract?: string;
 }
 
+export interface TaskOverlays {
+  hil?: {
+    enabled?: boolean;
+    risk_tier?: RiskTier;
+  };
+  policy_gate?: {
+    risk_tier?: RiskTier;
+    enabled?: boolean;
+  };
+  confidence?: {
+    enabled?: boolean;
+    threshold?: number;
+  };
+  paired?: {
+    enabled?: boolean;
+  };
+  review?: {
+    enabled?: boolean;
+  };
+}
+
 export interface TaskDefinition {
   id: string;
+  use?: string;
   agent: string;
   description: string;
   depends_on?: string[];
   outputs?: TaskOutput[];
   exit_conditions?: string[];
-  overlays?: {
-    hil?: {
-      enabled?: boolean;
-      risk_tier?: RiskTier;
-    };
-    policy_gate?: {
-      risk_tier?: RiskTier;
-      enabled?: boolean;
-    };
-    confidence?: {
-      enabled?: boolean;
-      threshold?: number;
-    };
-    paired?: {
-      enabled?: boolean;
-    };
-    review?: {
-      enabled?: boolean;
-    };
-  };
+  overlays?: TaskOverlays;
   max_rework_iterations?: number;
   [key: string]: unknown;
 }
+
+/** Fields allowed in workflow-level defaults: block. */
+export interface WorkflowDefaults {
+  overlays?: TaskOverlays;
+  max_rework_iterations?: number;
+  exit_conditions?: string[];
+}
+
+/** Engine built-in task defaults — applied before workflow defaults or task overrides. */
+export const ENGINE_TASK_DEFAULTS: WorkflowDefaults = {
+  overlays: {
+    hil:         { enabled: true },
+    policy_gate: { risk_tier: "T1" },
+  },
+  max_rework_iterations: 3,
+};
 
 export interface WorkflowConfig {
   version: string;
   name: string;
   description?: string;
+  defaults?: WorkflowDefaults;
   tasks: Record<string, Omit<TaskDefinition, "id">>;
 }
 
@@ -144,6 +164,8 @@ export interface AgentContext {
   handover_state: Record<string, unknown>;
   task_definition: TaskDefinition;
   dispatch_mode: DispatchMode;
+  /** Absolute path to the project root. Used by direct-mode adapters that write output files. */
+  project_path?: string;
 }
 
 export interface TaskResult {

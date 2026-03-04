@@ -1,7 +1,7 @@
 {
   "name": "ai-sdd",
   "version": "0.1.0",
-  "description": "AI-driven Software Design & Development orchestration framework",
+  "description": "AI software dev team",
   "type": "module",
   "bin": {
     "ai-sdd": "./src/cli/index.ts"

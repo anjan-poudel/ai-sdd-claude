@@ -11,6 +11,7 @@ export interface ContextAssemblyOptions {
   handover_state: Record<string, unknown>;
   task_definition: TaskDefinition;
   dispatch_mode: DispatchMode;
+  project_path?: string;
 }
 
 /**
@@ -26,6 +27,7 @@ export function assembleContext(options: ContextAssemblyOptions): AgentContext {
     handover_state: options.handover_state,
     task_definition: options.task_definition,
     dispatch_mode: options.dispatch_mode,
+    ...(options.project_path !== undefined && { project_path: options.project_path }),
   };
 }
 

@@ -53,39 +53,45 @@ ai-sdd init --tool codex --project /your/project
 ai-sdd init --tool roo_code --project /your/project
 ```
 
-This creates:
+For `claude_code`, this also creates:
 ```
+.claude/
+├── agents/              # sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer
+└── skills/
+    ├── sdd-run/         # /sdd-run — orchestrates full workflow loop
+    └── sdd-status/      # /sdd-status — progress table
+CLAUDE.md                # ai-sdd orientation appended
+constitution.md          # blank template (fill in your project context)
 .ai-sdd/
 ├── ai-sdd.yaml          # Project config
+├── workflows/
+│   └── default-sdd.yaml # Default SDD workflow (edit to customise)
 ├── state/               # Workflow state (auto-managed)
 │   └── hil/             # HIL queue items
-├── outputs/             # Task outputs
-└── agents/              # Custom agent overrides (optional)
+└── outputs/             # Task artifacts
 ```
 
 ### 2. Create a Workflow
 
-Edit `.ai-sdd/workflow.yaml` (or use the default):
+Edit `.ai-sdd/workflows/default-sdd.yaml` (copied by `init`) or create `.ai-sdd/workflow.yaml`:
 
 ```yaml
 version: "1"
 name: my-workflow
 
 tasks:
-  define-requirements:
-    agent: ba
-    description: "Elicit project requirements"
-    outputs:
-      - path: .ai-sdd/outputs/requirements.md
-        contract: requirements_doc
+  implement:
+    use: standard-implement   # agent, description, overlays, outputs — all from template
+    depends_on: []
 
-  design-l1:
-    agent: architect
-    description: "Produce L1 architecture"
-    depends_on: [define-requirements]
-    outputs:
-      - path: .ai-sdd/outputs/architecture-l1.md
+  review:
+    use: standard-review      # agent, description, overlays, outputs — all from template
+    depends_on: [implement]
 ```
+
+Override any field inline when you need workflow-specific context. See
+`data/workflows/examples/` for complete patterns (quickfix, agile-feature,
+greenfield, regulated-enterprise, etc.).
 
 ### 3. Create a Constitution
 
@@ -323,7 +329,7 @@ Start with: `ai-sdd serve --mcp`
 
 ```bash
 bun install                         # Install dependencies
-bun test                            # Run full test suite (177 tests)
+bun test                            # Run full test suite (195 tests)
 bun test tests/dsl.test.ts          # Run DSL tests only
 bun run src/cli/index.ts --help    # Verify CLI works
 ```

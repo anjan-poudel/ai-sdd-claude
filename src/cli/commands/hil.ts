@@ -16,6 +16,7 @@ export function registerHilCommand(program: Command): void {
   hil
     .command("list")
     .description("List PENDING HIL items")
+    .option("--json", "Output as JSON array (for MCP/agent consumption)")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
@@ -24,6 +25,12 @@ export function registerHilCommand(program: Command): void {
       const queue = new HilQueue(queuePath);
 
       const items = queue.list("PENDING");
+
+      if (options.json) {
+        console.log(JSON.stringify({ pending_hil_items: items }, null, 2));
+        return;
+      }
+
       if (items.length === 0) {
         console.log("No pending HIL items.");
         return;
