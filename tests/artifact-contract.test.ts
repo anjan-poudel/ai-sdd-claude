@@ -50,7 +50,8 @@ describe("ArtifactValidator", () => {
 
   it("validates content with required sections present", () => {
     const validator = new ArtifactValidator(registry);
-    const content = `# Requirements Doc\n\n## Overview\n\nTest project.\n\n## Requirements\n\nReq 1.\n\n## Acceptance Criteria\n\nGiven...`;
+    // requirements_doc is now the index file — sections are Summary + Contents
+    const content = `# Requirements — My Project\n\n## Summary\n\n- Functional requirements: 10\n\n## Contents\n\n- [FR/index.md](FR/index.md)\n- [NFR/index.md](NFR/index.md)`;
     const result = validator.validate(content, "requirements_doc");
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
@@ -58,10 +59,10 @@ describe("ArtifactValidator", () => {
 
   it("fails validation when required section is missing", () => {
     const validator = new ArtifactValidator(registry);
-    const content = `# Requirements Doc\n\n## Overview\n\nTest.`;
+    const content = `# Requirements — My Project\n\n## Summary\n\nOnly summary, no contents.`;
     const result = validator.validate(content, "requirements_doc");
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes("Requirements"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("Contents"))).toBe(true);
   });
 
   it("legacy mode skips validation for unknown contract", () => {

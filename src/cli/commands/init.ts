@@ -104,10 +104,9 @@ function installClaudeCode(projectPath: string): void {
     for (const file of readdirSync(srcAgentsDir)) {
       if (EXCLUDED_AGENTS.has(file)) continue;
       const dest = join(agentsDir, file);
-      if (!existsSync(dest)) {
-        copyFileSync(join(srcAgentsDir, file), dest);
-        console.log(`  Created: .claude/agents/${file}`);
-      }
+      const existed = existsSync(dest);
+      copyFileSync(join(srcAgentsDir, file), dest);
+      console.log(`  ${existed ? "Updated" : "Created"}: .claude/agents/${file}`);
     }
   }
 
