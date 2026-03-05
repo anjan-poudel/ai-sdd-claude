@@ -2,6 +2,7 @@
 
 **Phase:** B (Requirements Lock + Intake Discipline)  
 **Status:** DRAFT  
+**Priority:** P0  
 **Dependencies:** None  
 **Size:** S (1-2 days)
 
@@ -35,3 +36,12 @@ This must be represented in shared types and validated in config loader.
 2. Schema updates in `src/cli/config-loader.ts`.
 3. Tests in `tests/` for config loader behavior.
 
+## Dependency Section
+
+**Blocked by:**
+1. None
+
+**Blocks:**
+1. MCS-006
+2. MCS-007
+3. MCS-009

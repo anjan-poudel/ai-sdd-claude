@@ -2,6 +2,7 @@
 
 **Phase:** B (Requirements Lock + Intake Discipline)  
 **Status:** DRAFT  
+**Priority:** P0  
 **Dependencies:** MCS-001  
 **Size:** S (1-2 days)
 
@@ -29,3 +30,10 @@
 2. Schema assets in repo path used by validator.
 3. Tests covering pass/fail/missing-file cases.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-001
+
+**Blocks:**
+1. MCS-008

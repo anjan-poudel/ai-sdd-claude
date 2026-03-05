@@ -2,6 +2,7 @@
 
 **Phase:** A (Quality Gate Foundation)  
 **Status:** DRAFT  
+**Priority:** P0  
 **Dependencies:** MCS-002  
 **Size:** S (1 day)
 
@@ -32,3 +33,10 @@ The current repo has a Claude action workflow but no explicit governance gates f
 1. `.github/workflows/<governance-gates>.yml`.
 2. Minor doc updates linking local and CI gate commands.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-002
+
+**Blocks:**
+1. None

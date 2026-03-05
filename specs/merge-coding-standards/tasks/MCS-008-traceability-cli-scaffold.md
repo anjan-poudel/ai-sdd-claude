@@ -2,6 +2,7 @@
 
 **Phase:** C (Traceability + Policy Gate Expansion)  
 **Status:** DRAFT  
+**Priority:** P1  
 **Dependencies:** MCS-006, MCS-007  
 **Size:** M (2-3 days)
 
@@ -32,3 +33,11 @@ Initial focus: command scaffolding + output contracts (JSON + human-readable).
 2. Registration in `src/cli/index.ts`.
 3. Tests for command parsing and basic output behavior.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-006
+2. MCS-007
+
+**Blocks:**
+1. MCS-010

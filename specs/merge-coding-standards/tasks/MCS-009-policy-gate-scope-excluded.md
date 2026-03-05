@@ -2,6 +2,7 @@
 
 **Phase:** C (Traceability + Policy Gate Expansion)  
 **Status:** DRAFT  
+**Priority:** P1  
 **Dependencies:** MCS-001  
 **Size:** M (2 days)
 
@@ -30,3 +31,10 @@ Merged proposal calls out active gold-plating prevention by rejecting excluded-s
 2. Policy gate logic updates.
 3. Overlay tests for excluded-term enforcement.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-001
+
+**Blocks:**
+1. None

@@ -2,6 +2,7 @@
 
 **Phase:** B (Requirements Lock + Intake Discipline)  
 **Status:** DRAFT  
+**Priority:** P1  
 **Dependencies:** None  
 **Size:** M (2 days)
 
@@ -33,3 +34,10 @@ Prompt-level governance should enforce:
 2. Documentation updates in project guides.
 3. Tests or snapshot checks for prompt template content.
 
+## Dependency Section
+
+**Blocked by:**
+1. None
+
+**Blocks:**
+1. None

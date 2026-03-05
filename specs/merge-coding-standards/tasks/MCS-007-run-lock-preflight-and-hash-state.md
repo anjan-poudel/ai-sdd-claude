@@ -2,6 +2,7 @@
 
 **Phase:** B (Requirements Lock + Intake Discipline)  
 **Status:** DRAFT  
+**Priority:** P0  
 **Dependencies:** MCS-001, MCS-002  
 **Size:** M (2-3 days)
 
@@ -32,3 +33,11 @@
 2. State schema/type extensions.
 3. Tests for enforce/warn/off behavior and hash-change signaling.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-001
+2. MCS-002
+
+**Blocks:**
+1. MCS-008

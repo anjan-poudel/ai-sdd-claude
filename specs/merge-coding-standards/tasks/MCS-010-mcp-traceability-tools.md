@@ -2,6 +2,7 @@
 
 **Phase:** 0/C (MCP Enablement + Traceability)  
 **Status:** DRAFT  
+**Priority:** P1  
 **Dependencies:** MCS-008  
 **Size:** M (2 days)
 
@@ -31,3 +32,10 @@ Traceability must be accessible to tool-driven agents through the existing ai-sd
 2. Tool handler wiring to CLI/core traceability logic.
 3. MCP integration tests.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-008
+
+**Blocks:**
+1. None

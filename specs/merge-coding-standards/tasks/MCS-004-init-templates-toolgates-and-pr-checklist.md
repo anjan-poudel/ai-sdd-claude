@@ -2,6 +2,7 @@
 
 **Phase:** A (Quality Gate Foundation)  
 **Status:** DRAFT  
+**Priority:** P1  
 **Dependencies:** None  
 **Size:** S (1-2 days)
 
@@ -29,3 +30,10 @@ Newly initialized projects should receive governance starter artifacts automatic
 2. `src/cli/commands/init.ts` copy logic updates.
 3. Tests for file creation and idempotent behavior.
 
+## Dependency Section
+
+**Blocked by:**
+1. None
+
+**Blocks:**
+1. None

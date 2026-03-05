@@ -2,6 +2,7 @@
 
 **Phase:** A (Quality Gate Foundation)  
 **Status:** DRAFT  
+**Priority:** P0  
 **Dependencies:** MCS-001 (optional for enforcement mode wiring)  
 **Size:** M (2-3 days)
 
@@ -37,3 +38,11 @@ Adaptation requirements:
 2. Script usage section in project docs.
 3. Basic script tests (or smoke-test CI step) validating exit behavior.
 
+## Dependency Section
+
+**Blocked by:**
+1. MCS-001 (soft dependency; required only for enforce-mode coupling)
+
+**Blocks:**
+1. MCS-003
+2. MCS-007

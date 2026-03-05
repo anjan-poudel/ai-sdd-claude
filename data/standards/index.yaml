@@ -1,0 +1,37 @@
+version: "1"
+# Language identifiers used in ai-sdd.yaml under language: []
+# Agents must read ONLY the file(s) matching the declared language(s).
+# Never load all files — context efficiency is a hard requirement.
+languages:
+  typescript:
+    file: standards/typescript.md
+    display_name: TypeScript
+    aliases: [ts, node, nodejs, bun]
+  python:
+    file: standards/python.md
+    display_name: Python
+    aliases: [py, python3]
+  swift:
+    file: standards/swift.md
+    display_name: Swift (iOS/macOS)
+    aliases: [ios, macos, apple]
+  kotlin:
+    file: standards/kotlin.md
+    display_name: Kotlin (Android/JVM)
+    aliases: [android, jvm]
+  react-native:
+    file: standards/react-native.md
+    display_name: React Native
+    aliases: [rn, react_native]
+  rust:
+    file: standards/rust.md
+    display_name: Rust
+    aliases: []
+  go:
+    file: standards/go.md
+    display_name: Go
+    aliases: [golang]
+  java:
+    file: standards/java.md
+    display_name: Java
+    aliases: []
