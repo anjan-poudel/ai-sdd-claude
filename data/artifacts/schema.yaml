@@ -4,16 +4,15 @@ contracts:
   requirements_doc:
     name: requirements_doc
     version: "1"
-    description: "Requirements document produced by the BA agent"
+    description: "Requirements index produced by the BA agent (define-requirements/index.md). Links to FR/ and NFR/ subfolders."
     sections:
-      - Overview
-      - Requirements
-      - Acceptance Criteria
+      - Summary
+      - Contents
     fields:
       overview:
-        required: true
+        required: false
         type: string
-        description: "Project overview"
+        description: "Project overview (optional in index — detail lives in FR/NFR files)"
 
   architecture_l1:
     name: architecture_l1
@@ -40,10 +39,10 @@ contracts:
   task_breakdown_l3:
     name: task_breakdown_l3
     version: "1"
-    description: "L3 task breakdown produced by the LE agent"
+    description: "L3 task breakdown produced by the LE agent (plan-tasks/plan.md). Links to tasks/ subfolder of individual T-NNN.md files."
     sections:
-      - Overview
-      - Tasks
+      - Summary
+      - Contents
 
   implementation:
     name: implementation
