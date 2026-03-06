@@ -1,0 +1,65 @@
+{
+  "schema_version": "1",
+  "workflow": "default-sdd",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude",
+  "started_at": "2026-03-06T06:12:03.555Z",
+  "updated_at": "2026-03-06T06:12:03.555Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "design-l1": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-l1": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "design-l2": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-l2": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "plan-tasks": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "implement": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-implementation": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    }
+  }
+}

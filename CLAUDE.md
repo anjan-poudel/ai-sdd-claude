@@ -136,3 +136,18 @@ They are binding — violating them is the same class of error as a failing test
 ## Specs
 
 The `specs/` directory contains the original planning documents. `specs/CONTRACTS.md` is the canonical reference for enum values, transaction boundaries, and development invariants (§13). `specs/GAP-RETROSPECTIVE.md` documents the root causes of all 24 post-implementation gaps and their prevention patterns. Individual task specs live in `specs/tasks/T*.md`.
+
+---
+
+## ai-sdd: Specification-Driven Development
+
+This project uses ai-sdd. The framework runs under the hood — you do not need to
+run any ai-sdd commands manually.
+
+## How to use
+- Type `/sdd-run` to execute the next workflow task.
+- Answer clarifying questions and approve HIL gates as they appear.
+- Type `/sdd-status` to check progress at any time.
+
+## Project context
+See `constitution.md` for project purpose, rules, standards, and the artifact manifest.
