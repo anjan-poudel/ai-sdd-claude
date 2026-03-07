@@ -1,0 +1,16 @@
+{
+  "sdk_version": "1.0.4",
+  "sample_response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"protocol_version\":\"1\",\"verdict\":\"PASS\"}"
+      }
+    ],
+    "isError": false
+  },
+  "expected_unwrapped": {
+    "protocol_version": "1",
+    "verdict": "PASS"
+  }
+}

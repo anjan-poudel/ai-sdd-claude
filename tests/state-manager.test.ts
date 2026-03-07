@@ -1,10 +1,11 @@
 /**
  * T004: State manager tests
+ * T008: CANCELLED state tests
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { StateManager, StateError } from "../src/core/state-manager.ts";
-import { rmSync, existsSync, mkdirSync } from "fs";
+import { rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 const TEST_STATE_DIR = "/tmp/ai-sdd-test-state";
@@ -143,5 +144,107 @@ describe("StateManager: queries", () => {
     sm.transition("a", "RUNNING");
     sm.transition("a", "COMPLETED");
     expect(sm.isTerminal()).toBe(false);
+  });
+});
+
+describe("CANCELLED state", () => {
+  it("PENDING → CANCELLED succeeds", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(sm.getTaskState("t").status).toBe("CANCELLED");
+  });
+
+  it("RUNNING → CANCELLED succeeds and state file is updated atomically", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "RUNNING");
+    sm.transition("t", "CANCELLED");
+    expect(sm.getTaskState("t").status).toBe("CANCELLED");
+
+    // Verify by reading state file directly
+    const stateFile = join(TEST_STATE_DIR, "workflow-state.json");
+    const raw = JSON.parse(readFileSync(stateFile, "utf-8")) as { tasks: Record<string, { status: string }> };
+    expect(raw.tasks["t"]?.status).toBe("CANCELLED");
+  });
+
+  it("NEEDS_REWORK → CANCELLED succeeds", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "RUNNING");
+    sm.transition("t", "NEEDS_REWORK");
+    sm.transition("t", "CANCELLED");
+    expect(sm.getTaskState("t").status).toBe("CANCELLED");
+  });
+
+  it("HIL_PENDING → CANCELLED succeeds", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "RUNNING");
+    sm.transition("t", "HIL_PENDING");
+    sm.transition("t", "CANCELLED");
+    expect(sm.getTaskState("t").status).toBe("CANCELLED");
+  });
+
+  it("CANCELLED → RUNNING throws StateError (CANCELLED is terminal)", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(() => sm.transition("t", "RUNNING")).toThrow(StateError);
+  });
+
+  it("CANCELLED → FAILED throws StateError (CANCELLED is terminal)", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(() => sm.transition("t", "FAILED")).toThrow(StateError);
+  });
+
+  it("CANCELLED → COMPLETED throws StateError (CANCELLED is terminal)", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(() => sm.transition("t", "COMPLETED")).toThrow(StateError);
+  });
+
+  it("COMPLETED → CANCELLED throws StateError (COMPLETED is terminal)", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "RUNNING");
+    sm.transition("t", "COMPLETED");
+    expect(() => sm.transition("t", "CANCELLED")).toThrow(StateError);
+  });
+
+  it("FAILED → CANCELLED throws StateError (FAILED is terminal)", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "RUNNING");
+    sm.transition("t", "FAILED");
+    expect(() => sm.transition("t", "CANCELLED")).toThrow(StateError);
+  });
+
+  it("isTerminal() returns true when task is CANCELLED", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(sm.isTerminal()).toBe(true);
+  });
+
+  it("completed_at is set (non-null) after CANCELLED transition", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+    expect(sm.getTaskState("t").completed_at).not.toBeNull();
+  });
+
+  it("state file is readable with status 'CANCELLED' immediately after atomic write", () => {
+    const sm = makeManager();
+    sm.initializeTasks(["t"]);
+    sm.transition("t", "CANCELLED");
+
+    const stateFile = join(TEST_STATE_DIR, "workflow-state.json");
+    expect(existsSync(stateFile)).toBe(true);
+    const raw = JSON.parse(readFileSync(stateFile, "utf-8")) as { tasks: Record<string, { status: string }> };
+    expect(raw.tasks["t"]?.status).toBe("CANCELLED");
   });
 });

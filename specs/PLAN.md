@@ -24,107 +24,162 @@
 
 ### 2.1 Full Component Overview
 
+**Runtime:** Bun. **Language:** TypeScript strict mode. **Schema validation:** Zod v3.
+No build step — Bun runs TypeScript directly. Import paths use `.ts` extensions.
+
 ```
-ai-sdd/
+src/
+├── types/
+│   ├── index.ts                   # Canonical enums, interfaces (TaskStatus,
+│   │                              #   VALID_TRANSITIONS, WorkflowDefaults, etc.)
+│   └── overlay-protocol.ts        # Overlay provider protocol types
+│
 ├── core/                          # Engine
-│   ├── engine.py                  # Workflow loop (asyncio, concurrency budget)
-│   ├── workflow_loader.py         # YAML parser + DAG + cycle detection
-│   ├── agent_loader.py            # Agent registry + extends resolution
-│   ├── state_manager.py           # Checkpoint, resume, atomic writes
-│   ├── context_manager.py         # Constitution + handover + artifact manifest
-│   ├── hooks.py                   # pre/post-task, on-failure, on-loop-exit
-│   └── runtime_adapter.py         # RuntimeAdapter ABC
+│   ├── engine.ts                  # Workflow orchestrator — dispatches tasks, concurrency
+│   ├── workflow-loader.ts         # Kahn's topological sort + cycle detection; resolves
+│   │                              #   engine defaults → workflow defaults → use: → task inline
+│   ├── agent-loader.ts            # AgentRegistry with YAML `extends` inheritance
+│   ├── state-manager.ts           # Atomic state persistence (tmp+rename pattern)
+│   ├── context-manager.ts         # Assembles prompts for direct-mode dispatch
+│   └── hooks.ts                   # Pre/post task hook registry
 │
 ├── adapters/                      # Runtime adapter implementations
-│   ├── mock_adapter.py            # Deterministic mock (tests)
-│   ├── claude_code_adapter.py     # Claude Code integration
-│   ├── codex_adapter.py           # Codex/OpenAI integration
-│   └── gemini_adapter.py          # Gemini integration
+│   ├── base-adapter.ts            # RuntimeAdapter interface
+│   ├── factory.ts                 # Adapter factory (satisfies-never exhaustive switch)
+
+│   ├── errors.ts                  # Adapter error types
+│   ├── mock-adapter.ts            # Deterministic mock (tests)
+│   ├── claude-code-adapter.ts     # Claude Code integration (Bun subprocess)
+│   └── openai-adapter.ts          # OpenAI Chat Completions API
 │
-├── dsl/                           # Expression DSL [NEW]
-│   ├── grammar.py                 # Formal grammar (==, !=, >, >=, <, <=, and, or, not)
-│   ├── parser.py                  # Safe parser (no eval/exec)
-│   ├── evaluator.py               # Deterministic evaluator over task context
-│   └── tests/golden/              # Golden test corpus (valid + invalid expressions)
+├── dsl/                           # Expression DSL (no eval/exec anywhere)
+│   ├── parser.ts                  # Recursive-descent parser
+│   ├── evaluator.ts               # Deterministic evaluator over task context
+│   └── types.ts                   # AST node types
 │
-├── artifacts/                     # Artifact contract system [NEW]
-│   ├── schema.yaml                # Artifact type registry + versioning
-│   ├── validator.py               # Producer/consumer compatibility checks
-│   └── compatibility.py           # Version compatibility matrix
+├── artifacts/                     # Artifact contract system
+│   ├── registry.ts                # Artifact type registry
+│   ├── validator.ts               # Producer/consumer compatibility checks
+│   └── compatibility.ts           # Version compatibility matrix
 │
 ├── constitution/
-│   ├── resolver.py                # Recursive merge: framework → root → sub-module
-│   ├── manifest_writer.py         # Auto-writes artifact manifest section after each task [NEW]
-│   └── schema.yaml
+│   ├── resolver.ts                # Merge: root → .ai-sdd/ → CLAUDE.md → specs/*/ → submodules
+│   └── manifest-writer.ts         # Auto-writes artifact manifest after each task
 │
-├── agents/
-│   ├── base_agent.yaml
-│   ├── schema.yaml
-│   └── defaults/                  # BA, Architect, PE, LE, DEV, Reviewer
-│
-├── workflows/
-│   ├── default-sdd.yaml           # Standard SDD pipeline
-│   └── schema.yaml
-│
-├── overlays/                      # Decorator chain
-│   ├── base_overlay.py
-│   ├── hil/                       # HIL (default ON)
-│   ├── policy_gate/               # Evidence Policy Gate
-│   ├── confidence/                # Confidence scoring loop
-│   ├── paired/                    # Paired workflow loop
-│   └── review/                    # Agentic review loop
+├── overlays/                      # Decorator chain (locked order)
+│   ├── base-overlay.ts            # BaseOverlay interface
+│   ├── composition-rules.ts       # Enforces overlay chain order
+│   ├── registry.ts                # Overlay registry
+│   ├── provider-chain.ts          # Local + remote overlay provider chain
+│   ├── local-overlay-provider.ts  # Built-in overlay provider
+│   ├── hil/
+│   │   ├── hil-overlay.ts         # HIL overlay (default ON)
+│   │   └── hil-queue.ts           # HIL queue persistence
+│   ├── policy-gate/
+│   │   └── gate-overlay.ts        # Evidence Policy Gate (T0/T1/T2)
+│   ├── confidence/
+│   │   └── confidence-overlay.ts  # Confidence scoring (advisory)
+│   ├── paired/
+│   │   └── paired-overlay.ts      # Paired workflow (challenger agent)
+│   ├── review/
+│   │   └── review-overlay.ts      # Agentic review (GO/NO_GO)
+│   └── mcp/
+│       ├── mcp-client.ts          # MCP overlay client
+│       └── mcp-overlay-provider.ts # Remote overlay provider
 │
 ├── eval/
-│   ├── metrics.py                 # EvalMetric types
-│   └── scorer.py                  # confidence = f([EvalMetric]) → decimal
+│   ├── metrics.ts                 # EvalMetric types
+│   └── scorer.ts                  # confidence = f([EvalMetric]) → decimal
 │
 ├── observability/
-│   ├── emitter.py                 # Structured JSON event emission [ENHANCED]
-│   ├── sanitizer.py               # Secret redaction + prompt injection scrub
-│   ├── events.py                  # Event schema (with run_id, task_run_id, cost)
-│   └── cost_tracker.py            # Token/cost metrics aggregation [NEW]
+│   ├── emitter.ts                 # Structured JSON event emission
+│   ├── sanitizer.ts               # Secret redaction in logs
+│   ├── events.ts                  # Event schema (run_id, task_run_id, cost)
+│   └── cost-tracker.ts            # Token/cost metrics aggregation
 │
-├── security/                      # Security baseline [NEW]
-│   ├── input_sanitizer.py         # Prompt injection detection + quarantine
-│   └── output_sanitizer.py        # Output scrubbing for sensitive data
+├── security/
+│   ├── input-sanitizer.ts         # Prompt injection detection + quarantine
+│   ├── output-sanitizer.ts        # Output scrubbing for sensitive data
+│   └── patterns.ts                # Secret + injection regex patterns
 │
-├── integration/                   # Native AI tool integration [NEW]
-│   ├── mcp_server/                # Shared MCP server (Roo Code + Claude Code)
-│   │   └── server.py              # ~100 lines; all tools delegate to ai-sdd CLI
-│   ├── shared/
-│   │   └── tool_schemas/          # write_output_tool.json, workflow_tools.json
-│   │                              # (shared by OpenAI function calling + MCP)
-│   ├── claude_code/               # Slash commands (.claude/commands/) + CLAUDE.md
-│   ├── openai/                    # AGENTS.md template + OpenAI tool definitions
-│   └── roo_code/                  # Static .roomodes template + MCP config
+├── integration/
+│   └── mcp-server/
+│       └── server.ts              # MCP server (stdio transport; delegates to CLI)
 │
 ├── config/
-│   └── defaults.yaml
+│   ├── defaults.ts                # Engine + overlay + security defaults
+│   └── remote-overlay-schema.ts   # Remote overlay config schema
 │
 └── cli/
-    ├── main.py
-    └── commands.py                # run/resume/status/validate/hil/step/metrics
+    ├── index.ts                   # CLI entry point (commander.js)
+    ├── config-loader.ts           # YAML config loader + merge
+    └── commands/                   # One file per subcommand
+        ├── run.ts                 # ai-sdd run [--resume] [--task] [--dry-run] [--step]
+        ├── status.ts              # ai-sdd status [--json] [--next] [--metrics]
+        ├── complete-task.ts       # ai-sdd complete-task (single transaction boundary)
+        ├── validate-config.ts     # ai-sdd validate-config
+        ├── constitution.ts        # ai-sdd constitution [--task]
+        ├── hil.ts                 # ai-sdd hil list|show|resolve|reject
+        ├── init.ts                # ai-sdd init --tool <name>
+        ├── serve.ts               # ai-sdd serve --mcp
+        └── migrate.ts             # ai-sdd migrate [--dry-run]
+
+data/
+├── workflows/
+│   ├── default-sdd.yaml           # Standard SDD pipeline
+│   └── examples/                  # 6 scale-specific workflow templates
+│       ├── 01-quickfix.yaml
+│       ├── 02-agile-feature.yaml
+│       ├── 03-api-first.yaml
+│       ├── 04-platform-service.yaml
+│       ├── 05-greenfield-product.yaml
+│       └── 06-regulated-enterprise.yaml
+│
+├── agents/defaults/               # 6 default agent YAMLs (BA, Architect, PE, LE, Dev, Reviewer)
+│
+├── task-library/                  # 12 reusable task templates (use: targets)
+│
+├── artifacts/schema.yaml          # Artifact type registry + versioning
+├── config/defaults.yaml           # Framework-level config defaults
+├── standards/index.yaml           # Coding standards index
+│
+└── integration/
+    └── claude-code/               # Claude Code integration files (copied by init)
+        ├── CLAUDE.md.template     # Appended to project CLAUDE.md
+        ├── agents/                # 7 agent .md files (6 roles + sdd-scaffold)
+        └── skills/                # 3 skill directories (sdd-run, sdd-status, sdd-scaffold)
 ```
 
-### 2.2 Configuration Hierarchy (Unchanged)
+### 2.2 Configuration Hierarchy
 
 ```
 project-root/
+├── constitution.md                  # Root project constitution
+├── CLAUDE.md                        # Claude Code convention (also merged)
 ├── .ai-sdd/
 │   ├── ai-sdd.yaml
-│   ├── constitution.md
+│   ├── constitution.md              # Engine manifest (auto-generated)
 │   ├── agents/
-│   ├── workflows/
+│   ├── workflows/                   # Workflow YAMLs (including feature workflows)
 │   └── state/
 │       ├── workflow-state.json
 │       └── hil/
+├── specs/
+│   ├── <feature-slug>/
+│   │   ├── constitution.md          # Feature constitution (additive)
+│   │   └── init-report.md           # Feature setup report
+│   └── tasks/                       # Task specs
 └── src/
     └── some-module/
-        └── .ai-sdd/
-            └── constitution.md
+        └── constitution.md          # Submodule constitution
 ```
 
 Config merge: CLI flags > project `ai-sdd.yaml` > framework `defaults.yaml`
+
+**Key constraint:** `.ai-sdd/` is reserved for framework runtime files and must remain
+static across all projects. Feature-specific artifacts (constitutions, init reports)
+belong in `specs/<feature-slug>/`. Only workflow YAMLs go in `.ai-sdd/workflows/`
+because the engine looks there for workflow definitions.
 
 ### 2.3 Overlay Chain (Locked Order)
 
@@ -288,8 +343,9 @@ T000 (Spec Gate — T2 HIL)
 | P1-D13 | **Artifact Contract + I/O Schema** | S (4d) | **Codex** |
 | P1-D14 | **Observability (run IDs + cost/token metrics)** | S (4d) | **+Codex** |
 | P1-D15 | Concurrency budget config in engine | XS (2d) | **Codex (gap)** |
+| P1-D16 | **HIL resume state fix (T025)** | XS (2d) | **Bug fix — HIL_PENDING resume skips pre-overlays** |
 
-**Phase 1 total estimate: ~58 developer-days** *(reduced from 64 — ContextReducer removed)*
+**Phase 1 total estimate: ~60 developer-days** *(+2d for HIL resume fix)*
 
 ---
 
@@ -327,8 +383,9 @@ Goal: `ai-sdd` runs natively within Claude Code, OpenAI Codex CLI, and Roo Code.
 | P3-D5 | Shared tool schemas (`integration/shared/`) | XS (1d) | `write_output_tool.json` + `workflow_tools.json` reused by OpenAI + MCP |
 | P3-D6 | `ai-sdd init --tool <name>` CLI command | S (3d) | Replaces per-tool install.sh scripts; copies integration files to project |
 | P3-D7 | Integration test suite | M (5d) | Headless adapter tests + MCP server contract tests |
+| P3-D8 | **Adaptive `/sdd-scaffold` + feature constitutions** | S (3d) | Context-aware scaffold (greenfield / brownfield-feature / brownfield-quickfix); feature constitutions in `specs/<feature>/constitution.md`; resolver support |
 
-**Phase 3 total estimate: ~23 developer-days** *(reduced from 34 — no generate_modes.py, no install.sh scripts, shared MCP server)*
+**Phase 3 total estimate: ~26 developer-days** *(added P3-D8 adaptive scaffold)*
 
 ---
 
@@ -403,3 +460,4 @@ MVP is ready when all of the following are demonstrable:
 | Prompt injection via constitution/spec files | Input sanitization pipeline (T017) |
 | Evidence gate bypassed by raising threshold | T2 tier requires HIL by design — no config bypass |
 | Schema breaking change mid-run | State file `version` field; `ai-sdd migrate` CLI (Phase 5) |
+| HIL resume resets state machine | T025: HIL resume guard in `runTaskIteration()` skips pre-overlays for HIL_PENDING tasks |

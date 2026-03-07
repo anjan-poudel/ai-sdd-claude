@@ -184,6 +184,7 @@ ai-sdd migrate --from 1 --to 2  → explicit range
 | Injection detection level | `security.injection_detection_level` | `pass` / `warn` / `quarantine` |
 | LLM adapter type | `adapter.type` | `claude_code` / `openai` / `roo_code` / `mock` |
 | Constitution strict parse | `constitution.strict_parse` | `true` (default) = root malformed → hard error |
+| Constitution resolution order | (hardcoded) | root → `.ai-sdd/` → `CLAUDE.md` → `specs/*/constitution.md` (alpha) → submodules |
 | Legacy untyped artifacts | CLI flag `--allow-legacy-untyped-artifacts` | Never a config file default |
 | Concurrency budget | `engine.max_concurrent_tasks` | Semaphore on parallel dispatch |
 | Cost budget | `engine.cost_budget_per_run_usd` | Threshold; action set by `cost_enforcement` |

@@ -103,7 +103,7 @@ export class StateManager {
       ...updates,
       status: newStatus,
       started_at: newStatus === "RUNNING" ? (current.started_at ?? now) : current.started_at,
-      completed_at: (newStatus === "COMPLETED" || newStatus === "FAILED") ? now : current.completed_at,
+      completed_at: (newStatus === "COMPLETED" || newStatus === "FAILED" || newStatus === "CANCELLED") ? now : current.completed_at,
     };
     this.state.updated_at = now;
     this.persist();
@@ -144,7 +144,7 @@ export class StateManager {
    */
   isTerminal(): boolean {
     return Object.values(this.state.tasks).every(
-      (s) => s.status === "COMPLETED" || s.status === "FAILED",
+      (s) => s.status === "COMPLETED" || s.status === "FAILED" || s.status === "CANCELLED",
     );
   }
 

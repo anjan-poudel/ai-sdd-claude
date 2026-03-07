@@ -17,9 +17,9 @@ import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
 import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
-import { buildOverlayChain } from "../../overlays/composition-rules.ts";
+import { buildProviderChain } from "../../overlays/registry.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
-import { loadProjectConfig } from "../config-loader.ts";
+import { loadProjectConfig, loadRemoteOverlayConfig } from "../config-loader.ts";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -29,6 +29,8 @@ export function registerRunCommand(program: Command): void {
     .option("--task <id>", "Run specific task and its unmet dependencies")
     .option("--dry-run", "Print execution plan without making LLM calls")
     .option("--step", "Pause after each task group")
+    .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
+    .option("--feature <name>", "Feature name (loads specs/<name>/workflow.yaml)")
     .option("--project <path>", "Project directory", process.cwd())
     .action(async (options) => {
       const projectPath = resolve(options.project as string);
@@ -40,11 +42,23 @@ export function registerRunCommand(program: Command): void {
 
       const config = loadProjectConfig(projectPath);
 
-      // Load workflow — search order:
-      //   1. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
-      //   2. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
-      //   3. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
-      //   4. bundled framework default
+      // Load workflow — search order (first match wins):
+      //   0. --workflow <name>                               (CLI flag, highest priority)
+      //   1. specs/<feature>/workflow.yaml                  (--feature flag)
+      //   2. specs/workflow.yaml                            (greenfield — workflow lives with specs)
+      //   3. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
+      //   4. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
+      //   5. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
+      //   6. bundled framework default
+      const cliWorkflowName = options.workflow as string | undefined;
+      const cliWorkflowPath = cliWorkflowName
+        ? resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`)
+        : null;
+      const featureName = options.feature as string | undefined;
+      const featureWorkflowPath = featureName
+        ? resolve(projectPath, "specs", featureName, "workflow.yaml")
+        : null;
+      const specsWorkflowPath = resolve(projectPath, "specs", "workflow.yaml");
       const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
       const configWorkflowName = config.workflow as string | undefined;
       const configWorkflowPath = configWorkflowName
@@ -54,7 +68,21 @@ export function registerRunCommand(program: Command): void {
       const bundledDefaultPath = resolve(
         new URL("../../../data/workflows/default-sdd.yaml", import.meta.url).pathname,
       );
-      const wfPath = existsSync(workflowPath) ? workflowPath
+
+      if (cliWorkflowPath && !existsSync(cliWorkflowPath)) {
+        console.error(`Workflow not found: ${cliWorkflowPath}`);
+        process.exit(1);
+      }
+
+      if (featureWorkflowPath && !existsSync(featureWorkflowPath)) {
+        console.error(`Feature workflow not found: ${featureWorkflowPath}`);
+        process.exit(1);
+      }
+
+      const wfPath = (cliWorkflowPath && existsSync(cliWorkflowPath)) ? cliWorkflowPath
+                   : (featureWorkflowPath && existsSync(featureWorkflowPath)) ? featureWorkflowPath
+                   : existsSync(specsWorkflowPath) ? specsWorkflowPath
+                   : existsSync(workflowPath) ? workflowPath
                    : (configWorkflowPath && existsSync(configWorkflowPath)) ? configWorkflowPath
                    : existsSync(initCopiedPath) ? initCopiedPath
                    : existsSync(bundledDefaultPath) ? bundledDefaultPath
@@ -117,20 +145,26 @@ export function registerRunCommand(program: Command): void {
         config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/",
       );
       const outputsDir = resolve(projectPath, ".ai-sdd", "outputs");
-      const overlayChain = buildOverlayChain({
-        hil: new HilOverlay(
-          {
-            enabled: config.overlays?.hil?.enabled ?? true,
-            poll_interval_ms: (config.overlays?.hil?.poll_interval_seconds ?? 5) * 1000,
-            notify: config.overlays?.hil?.notify,
-          },
-          hilQueuePath,
-          emitter,
-        ),
-        policy_gate: new PolicyGateOverlay(outputsDir, emitter),
-        review: new ReviewOverlay(emitter, { enabled: false }),
-        paired: new PairedOverlay(emitter, { enabled: false }),
-        confidence: new ConfidenceOverlay(emitter),
+      const remoteConfig = loadRemoteOverlayConfig(projectPath);
+      const hilNotify = config.overlays?.hil?.notify;
+      const providerChain = buildProviderChain({
+        localOverlays: {
+          hil: new HilOverlay(
+            {
+              enabled: config.overlays?.hil?.enabled ?? true,
+              poll_interval_ms: (config.overlays?.hil?.poll_interval_seconds ?? 5) * 1000,
+              ...(hilNotify !== undefined && { notify: hilNotify }),
+            },
+            hilQueuePath,
+            emitter,
+          ),
+          policy_gate: new PolicyGateOverlay(outputsDir, emitter),
+          review: new ReviewOverlay(emitter, { enabled: false }),
+          paired: new PairedOverlay(emitter, { enabled: false }),
+          confidence: new ConfidenceOverlay(emitter),
+        },
+        ...(remoteConfig !== undefined && { remoteConfig }),
+        emitter,
       });
 
       // Engine
@@ -143,18 +177,19 @@ export function registerRunCommand(program: Command): void {
         manifestWriter,
         emitter,
         {
-          max_concurrent_tasks: config.engine?.max_concurrent_tasks,
-          cost_budget_per_run_usd: config.engine?.cost_budget_per_run_usd,
-          cost_enforcement: config.engine?.cost_enforcement,
+          ...(config.engine?.max_concurrent_tasks !== undefined && { max_concurrent_tasks: config.engine.max_concurrent_tasks }),
+          ...(config.engine?.cost_budget_per_run_usd !== undefined && { cost_budget_per_run_usd: config.engine.cost_budget_per_run_usd }),
+          ...(config.engine?.cost_enforcement !== undefined && { cost_enforcement: config.engine.cost_enforcement }),
         },
-        overlayChain,
+        providerChain,
       );
 
+      const targetTask = options.task as string | undefined;
       const result = await engine.run({
         dry_run: options.dryRun as boolean,
         step: options.step as boolean,
         resume: options.resume as boolean,
-        target_task: options.task as string | undefined,
+        ...(targetTask !== undefined && { target_task: targetTask }),
       });
 
       console.log(`\nWorkflow complete:`);

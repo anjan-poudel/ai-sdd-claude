@@ -1,0 +1,40 @@
+version: "1"
+name: default-sdd
+description: "Default Software Design & Development workflow"
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T0 }
+  max_rework_iterations: 3
+
+tasks:
+  define-requirements:
+    use: define-requirements
+
+  design-l1:
+    use: design-architecture
+    depends_on: [define-requirements]
+
+  review-l1:
+    use: review-l1
+    depends_on: [design-l1]
+
+  design-l2:
+    use: design-component
+    depends_on: [review-l1]
+
+  review-l2:
+    use: review-l2
+    depends_on: [design-l2]
+
+  plan-tasks:
+    use: plan-tasks
+    depends_on: [review-l2]
+
+  implement:
+    use: standard-implement
+    depends_on: [plan-tasks]
+
+  review-implementation:
+    use: review-implementation
+    depends_on: [implement]

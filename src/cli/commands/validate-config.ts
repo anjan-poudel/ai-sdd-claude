@@ -5,7 +5,7 @@
 import type { Command } from "commander";
 import { resolve } from "path";
 import { existsSync } from "fs";
-import { loadProjectConfig } from "../config-loader.ts";
+import { loadProjectConfig, loadRemoteOverlayConfig } from "../config-loader.ts";
 import { WorkflowLoader } from "../../core/workflow-loader.ts";
 import { AgentRegistry } from "../../core/agent-loader.ts";
 
@@ -67,6 +67,17 @@ export function registerValidateConfigCommand(program: Command): void {
           console.error(`  ✗ project agents: ${err instanceof Error ? err.message : String(err)}`);
           hasErrors = true;
         }
+      }
+
+      // 4. Remote overlay config (only if keys are present)
+      try {
+        const remoteConfig = loadRemoteOverlayConfig(projectPath);
+        if (remoteConfig !== undefined) {
+          console.log("  ✓ remote overlay config (overlay_backends / remote_overlays)");
+        }
+      } catch (err) {
+        console.error(`  ✗ remote overlay config: ${err instanceof Error ? err.message : String(err)}`);
+        hasErrors = true;
       }
 
       console.log();

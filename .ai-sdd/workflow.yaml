@@ -1,0 +1,96 @@
+version: "1"
+name: default-sdd
+description: |
+  Remote Overlay Abstraction for ai-sdd.
+  Transport-agnostic overlay provider system enabling local and remote (MCP) governance.
+  Primary spec: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T0 }
+    hil: { enabled: true }
+  max_rework_iterations: 3
+
+tasks:
+  define-requirements:
+    use: define-requirements
+    description: |
+      Elicit and document requirements for the Remote Overlay Abstraction.
+      PRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md
+      Also reference: specs/merge-coding-standards/remote-overlay-mcp-architecture-codex.md
+      Also reference: specs/merge-coding-standards/hybrid-mcp-sidecar-strategy-codex.md
+      Also reference: constitution.md for scope, NFRs, and constraints.
+
+      Produce structured FR and NFR files covering:
+      - OverlayProvider interface and provider types (Local, MCP)
+      - OverlayDecision normalized verdict contract
+      - McpClientWrapper and MCP overlay protocol (overlay.invoke)
+      - Provider chain construction and composition rules
+      - Config schema (overlay_backends, remote_overlays)
+      - CANCELLED task state addition
+      - Engine verdict mapping
+      - Remote failure handling (skip/warn/fail_closed)
+      - Observability events for remote overlay lifecycle
+
+  design-l1:
+    use: design-architecture
+    depends_on: [define-requirements]
+    description: |
+      Produce L1 architecture for the Remote Overlay Abstraction.
+      PRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md
+      Use the requirements from define-requirements output.
+
+      Key architectural decisions to formalize:
+      - OverlayProvider as transport-agnostic abstraction layer
+      - LocalOverlayProvider wrapping existing BaseOverlay (zero behavioral change)
+      - McpOverlayProvider delegating to MCP servers via @modelcontextprotocol/sdk
+      - Chain ordering: HIL(local) → Remote → Policy Gate → Review → Paired → Confidence
+      - Single overlay.invoke MCP tool contract (not many specialized tools)
+      - Engine as single enforcement point (verdicts → state transitions)
+
+  review-l1:
+    use: review-l1
+    depends_on: [design-l1]
+
+  design-l2:
+    use: design-component
+    depends_on: [review-l1]
+    description: |
+      Produce L2 component designs for each module in the Remote Overlay Abstraction.
+      PRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md (sections 2-4)
+      Use the L1 architecture from design-l1 output.
+
+      Components to design:
+      1. src/types/overlay-protocol.ts — OverlayDecision, OverlayVerdict, OverlayEvidence
+      2. src/overlays/provider.ts — OverlayProvider interface
+      3. src/overlays/local-overlay-provider.ts — BaseOverlay wrapper + mapping functions
+      4. src/overlays/mcp/mcp-client.ts — McpClientWrapper
+      5. src/overlays/mcp/mcp-overlay-provider.ts — MCP delegation + failure handling
+      6. src/overlays/provider-chain.ts — unified chain builder
+      7. src/config/remote-overlay-schema.ts — Zod schemas for backends + remote overlays
+      8. CANCELLED state changes in src/types/index.ts
+      9. Engine integration points in src/core/engine.ts
+
+  review-l2:
+    use: review-l2
+    depends_on: [design-l2]
+
+  plan-tasks:
+    use: plan-tasks
+    depends_on: [review-l2]
+    description: |
+      Break down the component designs into implementation tasks.
+      PRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md (section 9 — tickets ROA-001 to ROA-020)
+      Use the L2 component designs from design-l2 output.
+
+      The plan already has 20 tickets across 5 phases. Refine these into
+      concrete implementation tasks with acceptance criteria, dependencies,
+      and test requirements per CLAUDE.md development standards.
+
+  implement:
+    use: standard-implement
+    depends_on: [plan-tasks]
+
+  review-implementation:
+    use: review-implementation
+    depends_on: [implement]

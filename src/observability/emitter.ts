@@ -93,6 +93,7 @@ export class ObservabilityEmitter {
   private getEventLevel(type: string): ObservabilityLogLevel {
     if (type.includes("failed") || type.includes("violation")) return "ERROR";
     if (type.includes("warning") || type.includes("rework")) return "WARN";
+    if (type === "overlay.remote.fallback") return "WARN";
     return "INFO";
   }
 

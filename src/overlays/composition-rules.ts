@@ -10,6 +10,7 @@
  */
 
 import type { BaseOverlay } from "./base-overlay.ts";
+import type { OverlayProvider } from "../types/overlay-protocol.ts";
 
 export interface CompositionValidationResult {
   valid: boolean;
@@ -55,6 +56,45 @@ export function validateOverlayCombination(
     if (confIdx < gateIdx) {
       warnings.push("Confidence overlay should come after policy gate in the chain");
     }
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Validate a provider chain (OverlayProvider[]) against composition invariants.
+ * Added alongside validateOverlayCombination — does NOT modify the existing function.
+ */
+export function validateProviderCombination(
+  providers: OverlayProvider[],
+): CompositionValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const enabledProviders = providers.filter((p) => p.enabled);
+
+  // Invariant 1: HIL must be first when present
+  const hilIdx = enabledProviders.findIndex((p) => p.id === "hil" && p.runtime === "local");
+  if (hilIdx > 0) {
+    errors.push("Invariant 1 violated: HIL overlay must be first in the chain");
+  }
+
+  // Invariant 5: Paired and Review mutually exclusive
+  const hasReview = enabledProviders.some((p) => p.id === "review");
+  const hasPaired = enabledProviders.some((p) => p.id === "paired");
+  if (hasReview && hasPaired) {
+    errors.push("Invariant 5 violated: Paired and Review overlays are mutually exclusive — cannot both be enabled");
+  }
+
+  // Invariant 6 (new): remote overlays must not appear after policy_gate
+  const policyGateIdx = providers.findIndex((p) => p.id === "policy_gate" && p.runtime === "local");
+  const lastRemoteIdx = providers.reduce((max, p, i) =>
+    p.runtime !== "local" ? i : max, -1
+  );
+  if (policyGateIdx >= 0 && lastRemoteIdx > policyGateIdx) {
+    errors.push(
+      `Invariant 6 violated: remote overlays must not appear after policy_gate in the chain. ` +
+      `Remote provider at index ${lastRemoteIdx} is after policy_gate at index ${policyGateIdx}.`
+    );
   }
 
   return { valid: errors.length === 0, errors, warnings };

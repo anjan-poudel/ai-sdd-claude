@@ -7,5 +7,5 @@ overlays:
   hil:         { enabled: false }   # PE works under the architect's approved design
   policy_gate: { risk_tier: T0 }    # acceptance: document must be present
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}.md"
+  - path: "specs/{{task_id}}.md"
     contract: component_design_l2

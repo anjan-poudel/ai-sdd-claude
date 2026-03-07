@@ -34,7 +34,8 @@ function mergeConstitutions(constitutions: Array<{ path: string; content: string
 
 /**
  * Find constitution.md files in a project directory tree.
- * Searches: root, .ai-sdd/, and any submodule directories.
+ * Searches: root, .ai-sdd/, CLAUDE.md, specs/<feature>/constitution.md (feature constitutions),
+ * and any submodule directories.
  */
 function findConstitutionFiles(projectPath: string): string[] {
   const files: string[] = [];
@@ -49,6 +50,23 @@ function findConstitutionFiles(projectPath: string): string[] {
       files.push(candidate);
     }
   }
+
+  // Feature constitutions (specs/*/constitution.md, alphabetical by directory name)
+  const specsDir = join(projectPath, "specs");
+  try {
+    if (existsSync(specsDir)) {
+      const entries = readdirSync(specsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+        .sort();
+      for (const dir of entries) {
+        const featureConstitution = join(specsDir, dir, "constitution.md");
+        if (existsSync(featureConstitution)) {
+          files.push(featureConstitution);
+        }
+      }
+    }
+  } catch { /* directory unreadable — skip */ }
 
   // Search for submodule constitutions (one level deep)
   try {

@@ -11,8 +11,16 @@ import { loadProjectConfig } from "../config-loader.ts";
 import type { TaskStatus } from "../../types/index.ts";
 
 /** Resolve the workflow name using the same search order as the run command. */
-function resolveWorkflowName(projectPath: string, configWorkflowName?: string): string {
+function resolveWorkflowName(
+  projectPath: string,
+  configWorkflowName?: string,
+  cliWorkflowName?: string,
+): string {
+  const cliPath = cliWorkflowName
+    ? resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`)
+    : null;
   const wfPaths = [
+    ...(cliPath ? [cliPath] : []),
     resolve(projectPath, ".ai-sdd", "workflow.yaml"),
     ...(configWorkflowName
       ? [resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)]
@@ -40,6 +48,7 @@ const STATUS_SYMBOLS: Record<TaskStatus, string> = {
   NEEDS_REWORK: "↺",
   HIL_PENDING: "⏳",
   FAILED: "✗",
+  CANCELLED: "⊘",
 };
 
 export function registerStatusCommand(program: Command): void {
@@ -49,13 +58,18 @@ export function registerStatusCommand(program: Command): void {
     .option("--json", "Output full workflow state as JSON")
     .option("--next", "Output next ready tasks (use with --json for MCP)")
     .option("--metrics", "Include cost/token/duration per task")
+    .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
       const stateDir = resolve(projectPath, ".ai-sdd", "state");
 
       const config = loadProjectConfig(projectPath);
-      const workflowName = resolveWorkflowName(projectPath, config.workflow as string | undefined);
+      const workflowName = resolveWorkflowName(
+        projectPath,
+        config.workflow as string | undefined,
+        options.workflow as string | undefined,
+      );
       const stateManager = new StateManager(stateDir, workflowName, projectPath);
       try {
         stateManager.load();
@@ -107,8 +121,9 @@ export function registerStatusCommand(program: Command): void {
       const completed = tasks.filter(([, s]) => s.status === "COMPLETED").length;
       const failed = tasks.filter(([, s]) => s.status === "FAILED").length;
       const pending = tasks.filter(([, s]) => s.status === "PENDING").length;
+      const cancelled = tasks.filter(([, s]) => s.status === "CANCELLED").length;
 
       console.log("\n" + "─".repeat(maxIdLen + 40));
-      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending}`);
+      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled}`);
     });
 }

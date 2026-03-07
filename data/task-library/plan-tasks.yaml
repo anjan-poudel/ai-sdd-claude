@@ -9,5 +9,6 @@ overlays:
   hil:         { enabled: false }   # LE decomposes after reviews have passed
   policy_gate: { risk_tier: T0 }    # acceptance: index must be present
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}/plan.md"
+  - path: "specs/{{task_id}}/plan.md"
     contract: task_breakdown_l3
+  - path: "specs/{{task_id}}/tasks/"

@@ -12,5 +12,5 @@ overlays:
   review:      { enabled: true }
   policy_gate: { risk_tier: T1 }
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}.md"
+  - path: "specs/{{task_id}}.md"
     contract: review_report
