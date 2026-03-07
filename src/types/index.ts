@@ -11,15 +11,17 @@ export type TaskStatus =
   | "COMPLETED"
   | "NEEDS_REWORK"
   | "HIL_PENDING"
-  | "FAILED";
+  | "FAILED"
+  | "CANCELLED";
 
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  PENDING: ["RUNNING"],
-  RUNNING: ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED"],
-  COMPLETED: [],
-  NEEDS_REWORK: ["RUNNING", "FAILED"],
-  HIL_PENDING: ["RUNNING", "FAILED"],
-  FAILED: [],
+  PENDING:      ["RUNNING", "CANCELLED"],
+  RUNNING:      ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED", "CANCELLED"],
+  COMPLETED:    [],
+  NEEDS_REWORK: ["RUNNING", "FAILED", "CANCELLED"],
+  HIL_PENDING:  ["RUNNING", "FAILED", "CANCELLED"],
+  FAILED:       [],
+  CANCELLED:    [],   // terminal — no outgoing transitions
 };
 
 // ─── HIL Queue States ────────────────────────────────────────────────────────
@@ -146,6 +148,7 @@ export interface TaskState {
   rework_feedback?: string;
   hil_item_id?: string;
   error?: string;
+  overlay_evidence?: import("./overlay-protocol.ts").OverlayEvidence;
 }
 
 export interface WorkflowState {
@@ -252,6 +255,9 @@ export interface ProjectConfig {
   observability?: {
     log_level?: ObservabilityLogLevel;
   };
+  governance?: {
+    requirements_lock?: "off" | "warn" | "enforce";
+  };
 }
 
 // ─── Artifact Contract Types ──────────────────────────────────────────────────
@@ -295,7 +301,13 @@ export type EventType =
   | "confidence.computed"
   | "context.warning"
   | "cost.warning"
-  | "security.violation";
+  | "security.violation"
+  | "overlay.remote.connecting"
+  | "overlay.remote.connected"
+  | "overlay.remote.invoked"
+  | "overlay.remote.decision"
+  | "overlay.remote.failed"
+  | "overlay.remote.fallback";
 
 export interface ObservabilityEvent {
   type: EventType;
@@ -323,3 +335,7 @@ export interface ExecutionPlan {
   groups: ParallelGroup[];
   all_tasks: string[];
 }
+
+// ─── Remote Overlay Protocol Re-exports ───────────────────────────────────────
+
+export * from "./overlay-protocol.ts";

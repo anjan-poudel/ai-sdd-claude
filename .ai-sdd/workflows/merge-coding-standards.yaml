@@ -1,9 +1,6 @@
 version: "1"
 name: merge-coding-standards
-description: |
-  Integrates coding-standards project features into ai-sdd.
-  21 tickets across 4 phases: Zero-Code Foundations → Schema Extensions →
-  Traceability CLI + Overlays → Tooling and CI/CD.
+description: "Integrate coding-standards features into ai-sdd. Specs in specs/merge-coding-standards/tasks/"
 
 defaults:
   overlays:
@@ -13,483 +10,128 @@ defaults:
 
 tasks:
 
-  # ─── Phase 1: Zero-Code Foundations ──────────────────────────────────────
+  # ── Phase 1: Zero-Code Foundations ───────────────────────────────────────
 
   mcs-004:
     agent: dev
-    phase: implementation
-    description: |
-      Agent constitution + handover reporting instructions.
-      Create data/integration/claude-code/agents/constitution.md with 9 rules.
-      Add reference line to all 6 agent MD files.
-    spec: specs/merge-coding-standards/tasks/MCS-004-agent-constitution.md
-    acceptance_criteria:
-      - scenario: "Constitution file created with all rules"
-        given: "data/integration/claude-code/agents/ directory"
-        when: "task completes"
-        then:
-          - "constitution.md exists with all 9 non-negotiable rules"
-          - "All 6 agent MD files reference constitution.md"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-004/constitution.md"
-        contract: implementation_output
-    overlays:
-      policy_gate: { risk_tier: T0 }
-      hil: { enabled: false }
+    description: "Create constitution.md with 9 non-negotiable rules. Add reference to all 6 agent MD files."
 
   mcs-005a:
     agent: dev
-    phase: implementation
-    description: |
-      90% Confidence Rule + GO Protocol.
-      Update sdd-scaffold.md and sdd-ba.md with confidence scoring and GO gate.
-    spec: specs/merge-coding-standards/tasks/MCS-005a-go-protocol.md
+    description: "Add 90% confidence protocol and GO gate to sdd-scaffold.md and sdd-ba.md."
     depends_on: [mcs-004]
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-005a/changes.md"
-        contract: implementation_output
-    overlays:
-      policy_gate: { risk_tier: T0 }
-      hil: { enabled: false }
 
   mcs-005b:
     agent: dev
-    phase: implementation
-    description: |
-      Toolgate template + requirements.lock.example.yaml + init.ts update.
-      Create two new template files and update src/cli/commands/init.ts to copy them.
-    spec: specs/merge-coding-standards/tasks/MCS-005b-toolgate-template.md
+    description: "Create data/integration/toolgate.yaml and requirements.lock.example.yaml. Update init.ts to copy both."
     depends_on: [mcs-005a]
-    scope_excluded:
-      - "enforcement logic"
-      - "validation gate"
-    budget:
-      max_new_files: 3
-      max_loc_delta: 80
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-005b/changes.md"
-        contract: implementation_output
-    overlays:
-      policy_gate: { risk_tier: T1 }
-      hil: { enabled: true }
 
   mcs-005c:
     agent: dev
-    phase: implementation
-    description: |
-      Planning artefacts convention in CLAUDE.md.
-      Documentation-only: add plans/<feature-name>/ convention section.
-    spec: specs/merge-coding-standards/tasks/MCS-005c-planning-artefacts-convention.md
+    description: "Add plans/<feature-name>/ convention to CLAUDE.md."
     depends_on: [mcs-005b]
-    budget:
-      max_new_files: 0
-      max_loc_delta: 15
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-005c/changes.md"
-        contract: implementation_output
     overlays:
-      policy_gate: { risk_tier: T0 }
       hil: { enabled: false }
 
-  # ─── Phase 2: Schema Extensions + Governance Flag ────────────────────────
+  # ── Phase 2: Schema Extensions + Governance Flag ──────────────────────────
 
   mcs-006:
     agent: dev
-    phase: implementation
-    description: |
-      Types + Zod schemas.
-      Add GovernanceMode, LockMode, AcceptanceCriterion, TaskBudget,
-      ACCoverageReport, GatedHandoverState, TaskOverlays update,
-      WorkflowState update to src/types/index.ts.
-      All new fields optional — zero breaking changes.
-    spec: specs/merge-coding-standards/tasks/MCS-006-types-zod-schemas.md
+    description: "Add GovernanceMode, LockMode, AcceptanceCriterion, TaskBudget, ACCoverageReport, GatedHandoverState types and Zod schemas to src/types/index.ts."
     depends_on: [mcs-005b]
-    scope_excluded:
-      - "gate logic"
-      - "engine changes"
-      - "CLI changes"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 200
-      max_new_public_apis: 15
-    acceptance_criteria:
-      - scenario: "Types compile and Zod schemas validate"
-        given: "updated src/types/index.ts"
-        when: "bun run typecheck && bun test"
-        then:
-          - "Zero TypeScript errors"
-          - "All 177 existing tests still pass"
-          - "New Zod schema tests pass"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-006/changes.md"
-        contract: implementation_output
-    overlays:
-      policy_gate: { risk_tier: T1 }
-      hil: { enabled: true }
 
   mcs-001:
     agent: dev
-    phase: implementation
-    description: |
-      Governance config block in ai-sdd.yaml schema + src/config/defaults.ts.
-      Two separate config namespaces: governance and requirements_lock.
-    spec: specs/merge-coding-standards/tasks/MCS-001-governance-config-defaults.md
+    description: "Add governance and requirements_lock config blocks to ai-sdd.yaml schema and src/config/defaults.ts."
     depends_on: [mcs-006]
-    budget:
-      max_new_files: 0
-      max_loc_delta: 60
-    acceptance_criteria:
-      - scenario: "Defaults applied and backward compatible"
-        given: "existing config without governance block"
-        when: "config loaded"
-        then:
-          - "governance.requirements_lock defaults to warn"
-          - "All 177 existing tests pass"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-001/changes.md"
-        contract: implementation_output
 
   mcs-007:
     agent: dev
-    phase: implementation
-    description: |
-      Wire new optional TaskDefinition fields into workflow-loader.ts.
-      Parse and Zod-validate acceptance_criteria, scope_excluded, budget,
-      phase, requirement_ids through the 4-layer merge pipeline.
-    spec: specs/merge-coding-standards/tasks/MCS-007-task-definition-optional-fields.md
+    description: "Wire new optional TaskDefinition fields (acceptance_criteria, scope_excluded, budget, phase, requirement_ids) through workflow-loader.ts."
     depends_on: [mcs-006, mcs-001]
-    scope_excluded:
-      - "engine.ts changes"
-      - "overlay changes"
-      - "CLI changes"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 120
-    acceptance_criteria:
-      - scenario: "New fields available at runtime, no regressions"
-        given: "workflow with acceptance_criteria and budget fields"
-        when: "workflow-loader parses it"
-        then:
-          - "Fields available in task context"
-          - "All 177 existing tests pass"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-007/changes.md"
-        contract: implementation_output
 
   mcs-009a:
     agent: dev
-    phase: implementation
-    description: |
-      Spec hash tracking in src/core/engine.ts run() startup.
-      Add --acknowledge-spec-change flag to src/cli/commands/run.ts.
-      First-run baseline (OD-8): store hash without blocking.
-      Subsequent-run: changed hash requires flag or ConfigError.
-    spec: specs/merge-coding-standards/tasks/MCS-009a-spec-hash-tracking.md
+    description: "Add spec hash tracking to engine.ts run() startup. Add --acknowledge-spec-change flag to run.ts."
     depends_on: [mcs-007]
-    scope_excluded:
-      - "overlay changes"
-      - "CLI commands other than run.ts"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 100
-    acceptance_criteria:
-      - scenario: "First run stores hash, changed hash requires flag"
-        given: "engine with governance: warn"
-        when: "spec hash logic runs"
-        then:
-          - "First run: baseline_set event, no block"
-          - "Changed hash without flag: ConfigError thrown"
-          - "Changed hash with flag: proceeds, event emitted"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-009a/changes.md"
-        contract: implementation_output
 
   mcs-009b:
     agent: dev
-    phase: implementation
-    description: |
-      Gate 2 scope drift check in PolicyGateOverlay.postTask.
-      Scan GatedHandoverState.raw_output for scope_excluded terms.
-    spec: specs/merge-coding-standards/tasks/MCS-009b-gate2-scope-drift.md
+    description: "Implement Gate 2 scope drift check (scan raw_output for scope_excluded terms) in PolicyGateOverlay.postTask."
     depends_on: [mcs-009a]
-    scope_excluded:
-      - "budget check"
-      - "AC coverage"
-      - "spec hash"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 60
-    acceptance_criteria:
-      - scenario: "Excluded term in output causes gate failure"
-        given: "task with scope_excluded, raw_output containing excluded term"
-        when: "PolicyGateOverlay.postTask runs"
-        then:
-          - "Gate 2 failure in failures array"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-009b/changes.md"
-        contract: implementation_output
 
   mcs-009c:
     agent: dev
-    phase: implementation
-    description: |
-      Gate 2b budget check in PolicyGateOverlay.postTask.
-      Check new_files_created, loc_delta, new_public_apis against task budget.
-      Warn or fail based on governance mode.
-    spec: specs/merge-coding-standards/tasks/MCS-009c-gate2b-budget-check.md
+    description: "Implement Gate 2b budget check (new_files_created, loc_delta, new_public_apis) in PolicyGateOverlay.postTask."
     depends_on: [mcs-009b]
-    scope_excluded:
-      - "scope drift check"
-      - "spec hash"
-      - "AC coverage"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 60
-    acceptance_criteria:
-      - scenario: "Budget exceeded causes gate failure"
-        given: "task with budget.max_new_files: 3, handover reports 5"
-        when: "PolicyGateOverlay.postTask runs"
-        then:
-          - "Gate 2b failure: Budget exceeded: new_files_created=5 (max 3)"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-009c/changes.md"
-        contract: implementation_output
 
-  # ─── Phase 3: Traceability CLI + Planning Review Overlay + MCP ───────────
+  # ── Phase 3: Traceability CLI + Planning Review + MCP ────────────────────
 
   mcs-011:
     agent: reviewer
-    phase: planning
-    description: |
-      Feasibility spike: evaluate coding-standards/tools/* for reuse.
-      Produce specs/merge-coding-standards/tools-spike-decision.md.
-      Default assumption: implement natively (no cross-repo dep).
-    spec: specs/merge-coding-standards/tasks/MCS-011-feasibility-spike.md
+    description: "Feasibility spike: evaluate coding-standards/tools/* for reuse. Produce specs/merge-coding-standards/tools-spike-decision.md."
     depends_on: [mcs-009c]
-    outputs:
-      - path: "specs/merge-coding-standards/tools-spike-decision.md"
-        contract: decision_doc
     overlays:
       policy_gate: { risk_tier: T0 }
-      hil: { enabled: true }
 
   mcs-008:
     agent: dev
-    phase: implementation
-    description: |
-      ai-sdd traceability CLI.
-      New src/cli/commands/traceability.ts with 4 subcommands:
-      validate-lock, gaps, coverage, report --json.
-      Register in src/cli/index.ts.
-    spec: specs/merge-coding-standards/tasks/MCS-008-traceability-cli.md
+    description: "Implement ai-sdd traceability CLI (validate-lock, gaps, coverage, report --json) in src/cli/commands/traceability.ts."
     depends_on: [mcs-011]
-    budget:
-      max_new_files: 2
-      max_loc_delta: 400
-      max_new_public_apis: 4
-    acceptance_criteria:
-      - scenario: "gaps exits 1 on critical gap"
-        given: "task with unlinked requirement_id"
-        when: "ai-sdd traceability gaps"
-        then:
-          - "Exit code 1"
-          - "Critical gap listed in output"
-      - scenario: "report --json produces valid JSON"
-        given: "any valid project"
-        when: "ai-sdd traceability report --json"
-        then:
-          - "Output is parseable JSON"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-008/changes.md"
-        contract: implementation_output
 
   mcs-010:
     agent: dev
-    phase: implementation
-    description: |
-      MCP tool registration — validate_requirements_lock and check_scope_drift.
-      Both backed by traceability CLI (no stubs). Use existing runCli() pattern.
-    spec: specs/merge-coding-standards/tasks/MCS-010-mcp-traceability-tools.md
+    description: "Register validate_requirements_lock and check_scope_drift MCP tools backed by traceability CLI. No stubs."
     depends_on: [mcs-008]
-    budget:
-      max_new_files: 0
-      max_loc_delta: 60
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-010/changes.md"
-        contract: implementation_output
+    overlays:
+      hil: { enabled: false }
 
   mcs-012:
     agent: dev
-    phase: implementation
-    description: |
-      PlanningReviewOverlay — new src/overlays/planning-review/planning-review-overlay.ts.
-      Update composition-rules.ts (HIL → PlanningReview → Evidence Gate → ...).
-      Update defaults.ts. Includes timeout handling (24h default, fail-closed).
-    spec: specs/merge-coding-standards/tasks/MCS-012-planning-review-overlay.md
+    description: "Implement PlanningReviewOverlay with timeout handling. Update composition-rules.ts chain order."
     depends_on: [mcs-007]
-    scope_excluded:
-      - "traceability CLI"
-      - "budget changes"
-      - "complete-task changes"
-    budget:
-      max_new_files: 2
-      max_loc_delta: 350
-      max_new_public_apis: 2
-    acceptance_criteria:
-      - scenario: "APPROVED → proceeds; NEEDS_WORK → NEEDS_REWORK"
-        given: "planning_review overlay enabled"
-        when: "reviewer agent responds"
-        then:
-          - "APPROVED: task dispatched"
-          - "NEEDS_WORK: task → NEEDS_REWORK"
-          - "Timeout: treated as parse failure (fail-closed)"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-012/changes.md"
-        contract: implementation_output
 
   mcs-013:
     agent: dev
-    phase: implementation
-    description: |
-      AC coverage gate in complete-task Step 2.5.
-      Between sanitize (Step 2) and contract-validate (Step 3).
-      Enforce mode: transitions to NEEDS_REWORK on uncovered ACs.
-      Warn mode: emits event, completes.
-    spec: specs/merge-coding-standards/tasks/MCS-013-ac-coverage-gate.md
+    description: "Add AC coverage gate as Step 2.5 in complete-task (between sanitize and contract-validate)."
     depends_on: [mcs-007, mcs-001]
-    scope_excluded:
-      - "planning review"
-      - "spec hash"
-      - "scope drift"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 80
-    acceptance_criteria:
-      - scenario: "Uncovered ACs + enforce → NEEDS_REWORK"
-        given: "task with ACs, ac_coverage.uncovered non-empty, governance: enforce"
-        when: "complete-task runs"
-        then:
-          - "Task transitions to NEEDS_REWORK"
-          - "Feedback lists uncovered scenarios"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-013/changes.md"
-        contract: implementation_output
 
-  # ─── Phase 4: Tooling + CI/CD (all parallelisable) ───────────────────────
+  # ── Phase 4: Tooling + CI/CD (parallelisable) ─────────────────────────────
 
   mcs-002:
     agent: dev
-    phase: implementation
-    description: |
-      Adapted drift scripts: reproducibility-check.sh and semantic-drift-check.sh.
-      Adapted for ai-sdd project structure (bun, .ai-sdd paths, workflow-state.json).
-    spec: specs/merge-coding-standards/tasks/MCS-002-drift-scripts.md
+    description: "Create adapted reproducibility-check.sh and semantic-drift-check.sh in data/integration/scripts/."
     depends_on: [mcs-009c, mcs-008]
-    budget:
-      max_new_files: 2
-      max_loc_delta: 200
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-002/changes.md"
-        contract: implementation_output
 
   mcs-003:
     agent: dev
-    phase: implementation
-    description: |
-      GitHub Actions template with init prerequisite guard.
-      data/integration/.github/workflows/ai-sdd-gates.yml.
-      Fails with readable error if ai-sdd init was not run.
-    spec: specs/merge-coding-standards/tasks/MCS-003-github-actions-template.md
+    description: "Create GitHub Actions template data/integration/.github/workflows/ai-sdd-gates.yml with init guard."
     depends_on: [mcs-002]
-    budget:
-      max_new_files: 1
-      max_loc_delta: 50
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-003/changes.md"
-        contract: implementation_output
     overlays:
-      policy_gate: { risk_tier: T0 }
       hil: { enabled: false }
 
   mcs-015:
     agent: dev
-    phase: implementation
-    description: |
-      Phase-based model routing in src/adapters/factory.ts.
-      Precedence: task adapter override > phase_routing[task.phase] > default.
-      Auth warnings only for used adapters.
-    spec: specs/merge-coding-standards/tasks/MCS-015-phase-based-routing.md
+    description: "Add phase-based model routing to src/adapters/factory.ts. Auth warnings only for used adapters."
     depends_on: [mcs-007]
-    scope_excluded:
-      - "governance config"
-      - "overlay changes"
-      - "traceability"
-    budget:
-      max_new_files: 0
-      max_loc_delta: 150
-    acceptance_criteria:
-      - scenario: "Phase routing selects correct adapter"
-        given: "task with phase: planning and phase_routing configured"
-        when: "adapter resolved"
-        then:
-          - "phase_routing.planning adapter selected"
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-015/changes.md"
-        contract: implementation_output
 
   mcs-016:
     agent: dev
-    phase: implementation
-    description: |
-      check-budgets.sh — out-of-process budget verification script.
-      Reads toolgate.yaml, uses git diff --stat for metrics, exits non-zero on violation.
-    spec: specs/merge-coding-standards/tasks/MCS-016-check-budgets-script.md
+    description: "Create data/integration/scripts/check-budgets.sh for out-of-process budget verification."
     depends_on: [mcs-009c]
-    budget:
-      max_new_files: 1
-      max_loc_delta: 80
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-016/changes.md"
-        contract: implementation_output
     overlays:
-      policy_gate: { risk_tier: T0 }
       hil: { enabled: false }
 
   mcs-017:
     agent: dev
-    phase: implementation
-    description: |
-      regenerate-requirements-lock task library entry.
-      data/task-library/regenerate-requirements-lock.yaml.
-      Assigned to architect agent with HIL, produces lock file and diff.
-    spec: specs/merge-coding-standards/tasks/MCS-017-regenerate-requirements-lock-task.md
+    description: "Create data/task-library/regenerate-requirements-lock.yaml task library entry."
     depends_on: [mcs-009c]
-    budget:
-      max_new_files: 1
-      max_loc_delta: 40
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-017/changes.md"
-        contract: implementation_output
     overlays:
-      policy_gate: { risk_tier: T0 }
       hil: { enabled: false }
 
   mcs-014:
     agent: dev
-    phase: implementation
-    description: |
-      Governance onboarding documentation.
-      data/integration/claude-code/GOVERNANCE.md.
-      Covers: governance modes, AC format, budget declaration,
-      traceability CLI, lock file format, phase routing, lock_mode.
-    spec: specs/merge-coding-standards/tasks/MCS-014-governance-docs.md
+    description: "Create data/integration/claude-code/GOVERNANCE.md covering all governance features."
     depends_on: [mcs-009c, mcs-013]
-    budget:
-      max_new_files: 1
-      max_loc_delta: 300
-    outputs:
-      - path: ".ai-sdd/outputs/mcs-014/GOVERNANCE.md"
-        contract: documentation_output
     overlays:
-      policy_gate: { risk_tier: T0 }
       hil: { enabled: false }

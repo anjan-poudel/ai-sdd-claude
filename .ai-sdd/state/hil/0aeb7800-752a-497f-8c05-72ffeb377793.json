@@ -1,0 +1,15 @@
+{
+  "id": "0aeb7800-752a-497f-8c05-72ffeb377793",
+  "task_id": "define-requirements",
+  "workflow_id": "default-sdd",
+  "status": "RESOLVED",
+  "reason": "HIL triggered for task 'define-requirements'",
+  "context": {
+    "task_description": "Elicit and document requirements for the Remote Overlay Abstraction.\nPRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md\nAlso reference: specs/merge-coding-standards/remote-overlay-mcp-architecture-codex.md\nAlso reference: specs/merge-coding-standards/hybrid-mcp-sidecar-strategy-codex.md\nAlso reference: constitution.md for scope, NFRs, and constraints.\n\nProduce structured FR and NFR files covering:\n- OverlayProvider interface and provider types (Local, MCP)\n- OverlayDecision normalized verdict contract\n- McpClientWrapper and MCP overlay protocol (overlay.invoke)\n- Provider chain construction and composition rules\n- Config schema (overlay_backends, remote_overlays)\n- CANCELLED task state addition\n- Engine verdict mapping\n- Remote failure handling (skip/warn/fail_closed)\n- Observability events for remote overlay lifecycle\n",
+    "risk_tier": "T0",
+    "agent": "ba"
+  },
+  "created_at": "2026-03-07T06:10:30.210Z",
+  "notes": "Requirements already exist in specs/remote-overlay-abstraction/FR/ and specs/remote-overlay-abstraction/NFR/",
+  "resolved_at": "2026-03-07T06:13:35.866Z"
+}

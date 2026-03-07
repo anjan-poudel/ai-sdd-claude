@@ -39,7 +39,8 @@ src/
   adapters/               # base-adapter.ts interface; mock, claude-code, openai impls
   overlays/               # HIL, policy-gate, review, paired, confidence
   cli/commands/           # one file per CLI subcommand
-  constitution/           # manifest-writer.ts writes artifact index to constitution.md
+  constitution/           # resolver.ts merges root + specs/*/constitution.md + submodules
+                          # manifest-writer.ts writes artifact index to constitution.md
   security/               # input/output sanitizers, secret pattern matching
   observability/          # event emitter, cost tracker, log sanitizer
   artifacts/              # registry, validator, compatibility
@@ -68,6 +69,8 @@ PENDING → RUNNING → COMPLETED
                 └── FAILED
 ```
 Invalid transitions throw `StateError`.
+
+**HIL resume** — when the engine encounters a task in `HIL_PENDING` state (from persisted state on `--resume`), it skips the pre-overlay chain and calls `awaitResolution()` directly using the stored `hil_item_id`. This prevents the state machine reset bug where pre-overlays would fire again and create duplicate HIL items. See `specs/tasks/T025-hil-resume-state-reset.md`.
 
 **Overlay chain order is locked** (enforced by `src/overlays/composition-rules.ts`):
 ```

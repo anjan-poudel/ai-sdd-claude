@@ -182,6 +182,73 @@ export const SecurityViolationEvent = BaseEventSchema.extend({
   }).passthrough(),
 });
 
+export const OverlayRemoteConnectingEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.connecting"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    task_id: z.string(),
+    workflow_id: z.string(),
+    run_id: z.string(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteConnectedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.connected"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    task_id: z.string(),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteInvokedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.invoked"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteDecisionEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.decision"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    verdict: z.enum(["PASS", "REWORK", "FAIL", "HIL"]),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteFailedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.failed"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    failure_tier: z.enum(["transport", "schema"]),
+    error_message: z.string(),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteFallbackEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.fallback"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    failure_policy: z.enum(["skip", "warn"]),
+  }).passthrough(),
+});
+
 export type AnyEvent = {
   type: string;
   run_id: string;

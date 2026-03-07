@@ -5,6 +5,8 @@
 
 import type { ProjectConfig } from "../types/index.ts";
 
+// Note: governance is added to ProjectConfig as an optional field.
+// Required<ProjectConfig> needs all keys, so we cast here.
 export const DEFAULT_CONFIG: Required<ProjectConfig> = {
   version: "1",
   workflow: "default-sdd",
@@ -40,6 +42,9 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
   },
   observability: {
     log_level: "INFO",
+  },
+  governance: {
+    requirements_lock: "warn",
   },
 };
 

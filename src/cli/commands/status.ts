@@ -40,6 +40,7 @@ const STATUS_SYMBOLS: Record<TaskStatus, string> = {
   NEEDS_REWORK: "↺",
   HIL_PENDING: "⏳",
   FAILED: "✗",
+  CANCELLED: "⊘",
 };
 
 export function registerStatusCommand(program: Command): void {
@@ -107,8 +108,9 @@ export function registerStatusCommand(program: Command): void {
       const completed = tasks.filter(([, s]) => s.status === "COMPLETED").length;
       const failed = tasks.filter(([, s]) => s.status === "FAILED").length;
       const pending = tasks.filter(([, s]) => s.status === "PENDING").length;
+      const cancelled = tasks.filter(([, s]) => s.status === "CANCELLED").length;
 
       console.log("\n" + "─".repeat(maxIdLen + 40));
-      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending}`);
+      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled}`);
     });
 }

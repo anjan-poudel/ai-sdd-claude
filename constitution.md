@@ -2,11 +2,105 @@
 
 ## Project Purpose
 
-<!-- Describe the project goal and context here -->
+Build a **remote overlay abstraction** for ai-sdd — a transport-agnostic overlay provider system
+that lets the workflow engine consume governance decisions from both local in-process overlays
+and remote MCP servers.
+
+The primary use case is running `coding-standards` as a remote MCP-based governance overlay
+provider that enforces requirements-first development practices (traceability, scope drift,
+spec hash, AC coverage) without merging it into ai-sdd.
+
+### Deliverables
+
+- `OverlayProvider` interface — transport-agnostic provider contract
+- `LocalOverlayProvider` — adapter wrapping existing `BaseOverlay` instances (zero behavioral change)
+- `McpOverlayProvider` — MCP client delegation to remote overlay servers
+- `McpClientWrapper` — thin wrapper around `@modelcontextprotocol/sdk` Client
+- Provider chain builder — constructs unified chain from local + remote config
+- Config schemas — `overlay_backends` + `remote_overlays` Zod schemas
+- `CANCELLED` task state — the one genuinely missing state from coding-standards
+- Engine verdict mapping — `OverlayDecision` → state transitions
+- Observability events — `remote_overlay.invoked`, `remote_overlay.timeout`, `remote_overlay.error`
+- `overlay.invoke` MCP facade on coding-standards server (separate repo)
+
+### Users & Stakeholders
+
+- **Developers** using ai-sdd to run SDD workflows with optional remote governance
+- **CI/CD pipelines** consuming overlay verdicts for gate enforcement
+
+### Spec Reference
+
+`specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md` — canonical implementation plan with
+20 tickets (ROA-001 through ROA-020) across 5 phases.
 
 ## Standards
 
-<!-- Define quality standards, review criteria, and constraints -->
+### Quality Attributes (NFRs)
+
+1. **Composability** — overlays (local and remote) compose seamlessly in a single chain
+2. **Extensibility** — the core SDD framework is infinitely extensible via overlay providers
+3. **Developer-friendly** — simple, intuitive abstraction to both use and maintain
+4. **Concurrency/Parallelism** — low latency; remote overlays must not block unnecessarily
+5. **Testability** — easy to test; easy to mock overlay layers in isolation
+6. **Backward compatibility** — all 177 existing tests must pass unchanged after Phase 1
+7. **Lean** — minimal code additions; no unnecessary abstractions
+8. **Token efficiency** — MCP protocol payloads are compact; no verbose serialization
+
+### Constraints
+
+- **Runtime**: Bun (no Node.js-specific APIs)
+- **Language**: TypeScript strict mode
+- **Dependencies**: Only existing project dependencies + `@modelcontextprotocol/sdk` (already present)
+- **Overlay chain order**: HIL → [Remote] → Policy Gate → Review → Paired → Confidence (locked)
+- **No eval()**: Expression DSL uses recursive-descent parser only
+- **State machine**: VALID_TRANSITIONS is the single source of truth for task state
+- **Remote overlays are pure decision services** — they never mutate ai-sdd state or write artifacts
+- **Single enforcement point** — the engine maps verdicts to state transitions
+
+### Scope
+
+**In scope (ai-sdd repo):**
+- OverlayProvider interface + LocalOverlayProvider + McpOverlayProvider
+- Config schema for overlay_backends and remote_overlays
+- Provider chain builder + updated composition rules
+- CANCELLED state addition to TaskStatus + VALID_TRANSITIONS
+- Engine integration consuming OverlayDecision verdicts
+- Observability events for remote overlay lifecycle
+- Agent prompt updates (requirements-first guidance)
+
+**In scope (coding-standards repo, tracked here):**
+- `overlay.invoke` MCP tool facade
+- Overlay router (overlay_id + hook → internal tools)
+- Pre-task checks (lock_present, planning_completeness)
+- Post-task checks (traceability, scope_drift, spec_hash, ac_coverage)
+
+**Out of scope:**
+- Merging coding-standards' 15-state workflow machine into ai-sdd
+- Running coding-standards' graph/lock tools directly from engine
+- Remote overlays mutating ai-sdd state or writing artifacts
+- CLI sidecar transport (future work)
+- `governance_mode: enforce` promotion (future work)
+
+### Development Standards
+
+Per CLAUDE.md §Development Standards (binding):
+
+1. Config-to-behaviour tests for every config field
+2. Integration point tests when A is wired into B
+3. No silent stubs — deferred features throw explicit errors
+4. External schema fixtures for MCP protocol testing
+5. Error messages are contracts — verified by tests
+6. No empty directories
+7. One integration test per CLI command
+
+### Tech Stack
+
+- Bun runtime (bun run, bun test, bun install)
+- TypeScript strict mode
+- Zod v3 for schema validation
+- commander.js for CLI
+- @modelcontextprotocol/sdk for MCP client/server
+- TypeScript best practices (strict null checks, no any, exhaustive switches)
 
 ## Artifact Manifest
 

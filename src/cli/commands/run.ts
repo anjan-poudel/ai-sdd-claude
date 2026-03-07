@@ -17,9 +17,9 @@ import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
 import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
-import { buildOverlayChain } from "../../overlays/composition-rules.ts";
+import { buildProviderChain } from "../../overlays/registry.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
-import { loadProjectConfig } from "../config-loader.ts";
+import { loadProjectConfig, loadRemoteOverlayConfig } from "../config-loader.ts";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -117,20 +117,26 @@ export function registerRunCommand(program: Command): void {
         config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/",
       );
       const outputsDir = resolve(projectPath, ".ai-sdd", "outputs");
-      const overlayChain = buildOverlayChain({
-        hil: new HilOverlay(
-          {
-            enabled: config.overlays?.hil?.enabled ?? true,
-            poll_interval_ms: (config.overlays?.hil?.poll_interval_seconds ?? 5) * 1000,
-            notify: config.overlays?.hil?.notify,
-          },
-          hilQueuePath,
-          emitter,
-        ),
-        policy_gate: new PolicyGateOverlay(outputsDir, emitter),
-        review: new ReviewOverlay(emitter, { enabled: false }),
-        paired: new PairedOverlay(emitter, { enabled: false }),
-        confidence: new ConfidenceOverlay(emitter),
+      const remoteConfig = loadRemoteOverlayConfig(projectPath);
+      const hilNotify = config.overlays?.hil?.notify;
+      const providerChain = buildProviderChain({
+        localOverlays: {
+          hil: new HilOverlay(
+            {
+              enabled: config.overlays?.hil?.enabled ?? true,
+              poll_interval_ms: (config.overlays?.hil?.poll_interval_seconds ?? 5) * 1000,
+              ...(hilNotify !== undefined && { notify: hilNotify }),
+            },
+            hilQueuePath,
+            emitter,
+          ),
+          policy_gate: new PolicyGateOverlay(outputsDir, emitter),
+          review: new ReviewOverlay(emitter, { enabled: false }),
+          paired: new PairedOverlay(emitter, { enabled: false }),
+          confidence: new ConfidenceOverlay(emitter),
+        },
+        ...(remoteConfig !== undefined && { remoteConfig }),
+        emitter,
       });
 
       // Engine
@@ -143,18 +149,19 @@ export function registerRunCommand(program: Command): void {
         manifestWriter,
         emitter,
         {
-          max_concurrent_tasks: config.engine?.max_concurrent_tasks,
-          cost_budget_per_run_usd: config.engine?.cost_budget_per_run_usd,
-          cost_enforcement: config.engine?.cost_enforcement,
+          ...(config.engine?.max_concurrent_tasks !== undefined && { max_concurrent_tasks: config.engine.max_concurrent_tasks }),
+          ...(config.engine?.cost_budget_per_run_usd !== undefined && { cost_budget_per_run_usd: config.engine.cost_budget_per_run_usd }),
+          ...(config.engine?.cost_enforcement !== undefined && { cost_enforcement: config.engine.cost_enforcement }),
         },
-        overlayChain,
+        providerChain,
       );
 
+      const targetTask = options.task as string | undefined;
       const result = await engine.run({
         dry_run: options.dryRun as boolean,
         step: options.step as boolean,
         resume: options.resume as boolean,
-        target_task: options.task as string | undefined,
+        ...(targetTask !== undefined && { target_task: targetTask }),
       });
 
       console.log(`\nWorkflow complete:`);

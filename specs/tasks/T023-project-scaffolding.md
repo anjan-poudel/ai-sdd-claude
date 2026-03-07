@@ -17,6 +17,11 @@
 - Tune `.ai-sdd/ai-sdd.yaml` (risk tiers, cost budget, HIL settings)
 - Figure out what to do first and why
 
+Additionally, the scaffold asks the same questions regardless of whether this is a new
+project or an existing one. Greenfield projects need different information than brownfield
+features. There is no concept of feature-level constitutions: scaffolding a feature either
+overwrites the root constitution.md or requires manual workarounds.
+
 This creates friction at the most critical moment — project setup — and leads to
 under-specified constitutions and mis-tuned configurations.
 
@@ -24,14 +29,49 @@ under-specified constitutions and mis-tuned configurations.
 
 ## Solution
 
-A three-part scaffolding system:
+A three-part scaffolding system with **context-aware mode detection**:
 
 1. **`/sdd-scaffold` skill** — developer types this once in Claude Code; the skill
-   asks clarifying questions and drives everything else
-2. **`sdd-scaffold` subagent** — receives the collected answers and generates all
-   three output artifacts
+   runs a context probe, detects the mode (greenfield / brownfield-feature / brownfield-quickfix),
+   asks tailored questions, and drives everything else
+2. **`sdd-scaffold` subagent** — receives the collected answers and mode, then generates
+   the appropriate output artifacts (mode-dependent)
 3. **`ai-sdd scaffold` CLI command** — headless/CI entry point; reads a description
    file and dispatches to the configured adapter
+
+### Mode Detection
+
+The skill runs silent bash probes before asking any questions:
+- `test -f constitution.md && grep -c '^\S' constitution.md` — real content?
+- `ls src/ lib/ app/ 2>/dev/null | head -3` — source dirs?
+- `git log --oneline -3 2>/dev/null` — git history?
+- `ls specs/*/constitution.md 2>/dev/null` — existing feature constitutions?
+
+Combined with Q1 ("What are you building — new project, feature, or quick fix?"), the
+skill determines: **greenfield** | **brownfield-feature** | **brownfield-quickfix**.
+
+### Mode-specific question counts
+
+| Mode | Questions | Clarification max |
+|------|-----------|-------------------|
+| greenfield | 8 (Q1-Q8) | 5 |
+| brownfield-feature | 6 (Q1-Q6) | 3 |
+| brownfield-quickfix | 4 (Q1-Q4) | 2 |
+
+### Mode-specific output artifacts
+
+| Mode | Artifacts |
+|------|-----------|
+| greenfield | `constitution.md`, `.ai-sdd/ai-sdd.yaml`, `.ai-sdd/workflows/default-sdd.yaml`, `docs/init-report.md` |
+| brownfield-feature | `specs/<feature-slug>/constitution.md`, `.ai-sdd/workflows/<feature-slug>.yaml`, `specs/<feature-slug>/init-report.md` |
+| brownfield-quickfix | `.ai-sdd/workflows/quickfix-<slug>.yaml`, `docs/quickfix-<slug>-report.md` |
+
+### Key constraint: `.ai-sdd/` is framework-only
+
+The `.ai-sdd/` directory houses framework runtime files and must remain static across
+all projects. Feature-specific artifacts (constitutions, init reports) belong in
+`specs/<feature-slug>/`. Only workflow YAML files go in `.ai-sdd/workflows/` because
+the engine looks there for workflow definitions.
 
 ---
 
@@ -43,19 +83,33 @@ Developer types: /sdd-scaffold
     ▼
 sdd-scaffold skill:
   1. Runs `ai-sdd init --tool claude_code` if not already done
-  2. Asks 7 clarifying questions inline (HIL in the conversation)
-  3. Spawns Task(sdd-scaffold) with collected answers
+  2. Context probe (silent bash): detect greenfield vs brownfield
+  3. Asks Q1 (combined opener) → finalizes mode
+  4. Asks mode-tailored questions (8/6/4 depending on mode)
+  5. Phase 2: targeted clarification (max 5/3/2 depending on mode)
+  6. Spawns Task(sdd-scaffold) with mode + collected answers
       │
       ▼
   sdd-scaffold subagent (own context window):
-    → Read: any existing requirements.md / project brief files
-    → Write: constitution.md          (populated from answers + analysis)
-    → Write: .ai-sdd/ai-sdd.yaml      (tuned to the project)
-    → Write: .ai-sdd/workflows/default-sdd.yaml  (with appropriate overrides)
-    → Write: docs/init-report.md      (actionable setup guide)
-    → Run: `ai-sdd validate-config` via Bash to confirm config is valid
+    MODE: greenfield
+      → Read: any existing requirements.md / project brief files
+      → Write: constitution.md          (populated from answers + analysis)
+      → Write: .ai-sdd/ai-sdd.yaml      (tuned to the project)
+      → Write: .ai-sdd/workflows/default-sdd.yaml  (with appropriate overrides)
+      → Write: docs/init-report.md      (actionable setup guide)
+      → Run: `ai-sdd validate-config`
+    MODE: brownfield-feature
+      → Read: existing constitution.md (project context)
+      → Write: specs/<feature-slug>/constitution.md  (feature constitution)
+      → Write: .ai-sdd/workflows/<feature-slug>.yaml (feature workflow)
+      → Write: specs/<feature-slug>/init-report.md   (feature setup guide)
+      → Run: `ai-sdd validate-config`
+    MODE: brownfield-quickfix
+      → Read: existing constitution.md (project context)
+      → Write: .ai-sdd/workflows/quickfix-<slug>.yaml (quickfix workflow)
+      → Write: docs/quickfix-<slug>-report.md          (quickfix report)
     → Returns: summary of what was generated and what the developer should do next
-  4. Skill presents the summary and next steps inline
+  7. Skill presents the summary and next steps inline
 
 Headless / CI:
   ai-sdd scaffold --description-file brief.md [--tool claude_code]
@@ -66,15 +120,29 @@ Headless / CI:
 
 ## Clarifying Questions (the HIL conversation)
 
-The conversation has two phases:
+The conversation has two phases, adapted by mode:
 
-**Phase 1 — Structured intake (Q1–Q7).** The skill asks all 7 questions in sequence.
+**Phase 1 — Context probe + structured intake.** The skill runs silent bash probes
+to detect greenfield vs brownfield, then asks Q1 (combined opener: "What are you
+building — new project, feature, or quick fix?"). Q1 + probe results finalize the mode.
+The skill then asks the remaining mode-specific questions in sequence.
+
+| Mode | Total questions | Details |
+|------|----------------|---------|
+| greenfield | Q1-Q8 | Q2: platform, Q3: stack, Q4: safety, Q5: compliance, Q6: scale, Q7: constraints, Q8: user + success criteria |
+| brownfield-feature | Q1-Q6 | Q2: feature name/scope, Q3: new safety/compliance delta, Q4: affected modules, Q5: feature constraints, Q6: user + success criteria |
+| brownfield-quickfix | Q1-Q4 | Q2: bug description, Q3: safety implications, Q4: constraints |
+
 Each question is presented with `(type ? for help)`. Any response other than `?` is
 recorded and the skill moves on.
 
-**Phase 2 — Targeted clarification.** After all 7 answers are collected, the skill
-reviews them for ambiguity, vagueness, and conflicts. It asks only the clarifying
-questions that are necessary — not a comprehensive interrogation.
+**Phase 2 — Targeted clarification.** After all mode-specific answers are collected,
+the skill reviews them for ambiguity, vagueness, and conflicts. It asks only the
+clarifying questions that are necessary. Maximum: 5 (greenfield), 3 (brownfield-feature),
+2 (brownfield-quickfix).
+
+For brownfield modes, the skill also reads the existing constitution.md to understand
+the project's current context and avoid asking about things already documented there.
 
 **Escape hatch.** At the start of Phase 2 the skill shows:
 > "I have a few follow-up questions. Type `→` or `skip` at any time to stop and proceed
@@ -128,19 +196,27 @@ the most critical 5 and document the rest in `Open Decisions`.
 
 ### Questions and help text
 
+#### All modes
+
 ---
 
-**Q1 — What are you building?**
-> Describe the core problem you're solving and for whom. One or two sentences.
-> Don't worry about technical specifics yet — focus on purpose and user.
+**Q1 — What are you building — and is this a new project, a new feature, or a quick fix?**
+> Describe the core problem you're solving and whether this is greenfield, a feature
+> addition, or a bug fix.
 
 `? help` →
-> Focus on the *why* and *who*, not the *how*. Examples:
-> - "A mobile app that helps elderly users manage medications and stay connected with family."
-> - "A REST API backend for a government job portal used by HR departments."
-> - "A real-time dashboard for monitoring IoT sensors in a warehouse."
+> "New project" = greenfield, no existing codebase.
+> "New feature" = adding capability to an existing codebase with an existing constitution.
+> "Quick fix" = bug fix or small patch in an existing codebase.
+> If unsure, describe what you're doing and I'll help classify it.
+> Examples:
+> - "A mobile app that helps elderly users manage medications — new project."
+> - "Adding payment processing to our existing e-commerce backend — new feature."
+> - "Login fails with plus-sign emails — quick fix."
 
 ---
+
+#### Greenfield questions (Q2-Q8)
 
 **Q2 — Target platform(s)?**
 > Where will the software run? Select all that apply.
@@ -248,11 +324,80 @@ the most critical 5 and document the rest in `Open Decisions`.
 
 ---
 
+**Q8 — Who is the primary user and what does success look like?** *(greenfield only)*
+> Name the person (role, not name) who will use the system most, and describe the
+> outcome that means the project worked.
+
+`? help` →
+> Examples:
+> - "Primary user is a clinic nurse. Success = medication errors drop 50% in 6 months."
+> - "Primary user is an HR manager. Success = job posting to hire time under 2 weeks."
+
+---
+
+#### Brownfield-feature questions (Q2-Q6)
+
+**Q2 — Feature name and scope?**
+> What does the feature do, and what does it NOT do?
+
+`? help` →
+> Be specific about boundaries. Example: "User notification preferences — lets users
+> choose email vs push for each type. Does NOT change the delivery pipeline itself."
+
+**Q3 — New safety or compliance concerns beyond what the project already handles?**
+> The root constitution.md documents the project baseline. Only mention NEW concerns.
+
+`? help` →
+> Example: "This feature adds payment processing — need PCI-DSS (rest of app doesn't
+> handle payments)." Answer "none" if the feature stays within the existing profile.
+
+**Q4 — What existing code or modules does this feature touch?**
+> List files, directories, services, or APIs this feature modifies or integrates with.
+
+`? help` →
+> Example: "src/notifications/, the user-settings API, and the email service adapter."
+
+**Q5 — Feature-specific constraints?**
+> Constraints beyond the project-level ones in constitution.md.
+
+`? help` →
+> Example: "Must ship by March 15", "Cannot change the database schema".
+
+**Q6 — Primary user of this feature + success criteria?**
+> Who benefits and what outcome means it worked?
+
+`? help` →
+> Example: "Ops team. Success = fewer than 5 false-positive alerts per day."
+
+---
+
+#### Brownfield-quickfix questions (Q2-Q4)
+
+**Q2 — What is the bug or issue?**
+> Symptoms, location, steps to reproduce if known.
+
+`? help` →
+> Example: "Login fails with 500 when email has a plus sign. In src/auth/login.ts."
+
+**Q3 — Safety or compliance implications?**
+> Could this bug cause data loss, security exposure, or compliance violations?
+
+`? help` →
+> Example: "Yes — exposes user emails in error responses (GDPR concern)."
+
+**Q4 — Constraints?**
+> Timeframe, things that must NOT break.
+
+`? help` →
+> Example: "Must fix today. Do not change auth middleware signature."
+
 ---
 
 ## Generated Artifacts
 
-### `constitution.md`
+### Greenfield artifacts
+
+#### `constitution.md`
 
 Populated from answers, not a blank template. Structure:
 
@@ -310,7 +455,7 @@ Selects the most appropriate example workflow and adds project-specific override
 
 Safety-critical or compliance requirements → add T2 gates and `paired: enabled: true` on implement.
 
-### `docs/init-report.md`
+#### `docs/init-report.md`
 
 Actionable setup guide. Sections:
 
@@ -322,12 +467,60 @@ Actionable setup guide. Sections:
 5. **What each agent will produce** — table of agent → output → key decisions it makes
 6. **Estimated cost** — rough estimate based on workflow + cost_budget_per_run_usd
 
+### Brownfield-feature artifacts
+
+#### `specs/<feature-slug>/constitution.md`
+
+Feature constitution — additive to the root constitution.md. Lives in the project's
+`specs/` directory, NOT inside `.ai-sdd/`. The resolver picks it up automatically.
+
+```markdown
+# Feature Constitution: <feature-name>
+
+## Feature Scope
+[What it does and does NOT do — from Q2]
+
+## Affected Modules
+[Existing code touched — from Q4]
+
+## Additional Constraints
+[Feature-specific — from Q5]
+
+## Safety & Compliance Delta
+[New concerns beyond root constitution — from Q3. "None" if none]
+
+## Success Criteria
+[User-facing — from Q6]
+
+## Open Decisions
+[Assumptions documented here]
+```
+
+#### `.ai-sdd/workflows/<feature-slug>.yaml`
+
+Feature-specific workflow. Base: `02-agile-feature.yaml`. If new safety/compliance
+concerns: add T2 gates.
+
+#### `specs/<feature-slug>/init-report.md`
+
+Feature setup guide: overview, integration surface, open decisions, steps to start.
+
+### Brownfield-quickfix artifacts
+
+#### `.ai-sdd/workflows/quickfix-<slug>.yaml`
+
+Minimal quickfix workflow. Base: `01-quickfix.yaml`. If safety implications: add T2 + HIL.
+
+#### `docs/quickfix-<slug>-report.md`
+
+Bug description, safety impact, constraints, steps to start.
+
 ---
 
 ## Acceptance Criteria
 
 ```gherkin
-Feature: /sdd-scaffold skill — interactive path
+Feature: /sdd-scaffold skill — mode detection
 
   Scenario: Skill runs init if project not yet initialised
     Given a project directory with no .ai-sdd/ directory
@@ -335,12 +528,35 @@ Feature: /sdd-scaffold skill — interactive path
     Then the skill runs `ai-sdd init --tool claude_code` before asking any questions
     And the standard agent and skill files are created in .claude/
 
-  Scenario: Skill asks exactly 7 questions with ? help available
-    Given a project directory initialised with ai-sdd
-    When the developer types /sdd-scaffold
-    Then the skill presents questions 1–7 in sequence
-    And each question includes a "(type ? for help)" prompt
-    And the skill waits for developer input before proceeding to the next question
+  Scenario: Context probe detects greenfield project
+    Given a project directory with no constitution.md, no source dirs, no git history
+    When the skill runs the context probe
+    Then the inferred mode is greenfield
+    And Q1 confirms the mode
+
+  Scenario: Context probe detects brownfield project
+    Given a project with constitution.md containing real content, source dirs, and git history
+    When the skill runs the context probe
+    Then the inferred mode is brownfield
+    And Q1 answer determines feature vs quickfix
+
+  Scenario: Mode conflict triggers disambiguation
+    Given the probe detects brownfield but the developer says "new project"
+    When Q1 is answered
+    Then the skill asks one disambiguation question citing the probe evidence
+    And uses the developer's confirmed answer as the final mode
+
+  Scenario: Skill announces detected mode
+    Given Q1 has been answered and mode is finalized
+    Then the skill displays: "Got it — this is [a new project / a new feature / a quick fix]."
+
+Feature: /sdd-scaffold skill — greenfield path
+
+  Scenario: Greenfield asks 8 questions with ? help available
+    Given mode is greenfield
+    When the skill asks questions
+    Then it presents Q1-Q8 in sequence (platform, stack, safety, compliance, scale, constraints, user+success)
+    And each question includes "(type ? for help)"
 
   Scenario: Developer types ? to get help on a question
     Given the skill has asked Q2 (target platform)
@@ -349,109 +565,145 @@ Feature: /sdd-scaffold skill — interactive path
     And re-asks Q2
     And does not advance to Q3 until a non-? answer is given
 
-  Scenario: Developer types "help" or "?help" to get help
-    Given the skill has asked any question
-    When the developer responds with "help" or "?help" or "more info"
-    Then the skill treats it the same as "?"
-    And shows the help text and re-asks the question
-
-  Scenario: Skill announces skip option at start of Phase 2
-    Given all 7 answers have been collected
-    When the skill begins Phase 2
-    Then it displays a message containing "→ or 'skip'" before asking any question
-    And the message explains the developer can proceed with available information
-
-  Scenario: Skip request triggers confirmation before stopping
-    Given Phase 2 has begun and one clarifying question has been asked
-    When the developer responds with "→"
-    Then the skill asks for confirmation before stopping
-    And the confirmation message explains gaps will be filled with defaults
-    And the skill does NOT yet spawn Task(sdd-scaffold)
-
-  Scenario: Developer confirms skip
-    Given the skill has asked for skip confirmation
-    When the developer responds with "yes" or "y" or "ok" or "sure"
-    Then the skill stops asking clarifying questions
-    And proceeds to spawn Task(sdd-scaffold) with answers collected so far
-
-  Scenario: Developer declines skip confirmation
-    Given the skill has asked for skip confirmation
-    When the developer responds with "no" or "n" or "keep going"
-    Then the skill resumes from the next unanswered clarifying question
-    And does not treat it as a skip
-
-  Scenario: Developer skips with any recognised phrase — same confirmation flow
-    Given Phase 2 is in progress
-    When the developer responds with "skip" or "proceed" or "go ahead" or "enough"
-      or "continue" or "s"
-    Then the skill asks for confirmation identically to the "→" case
+  Scenario: Greenfield Phase 2 allows max 5 clarifying questions
+    Given mode is greenfield and 7 issues were found
+    When the skill runs Phase 2
+    Then it asks at most 5 clarifying questions
+    And documents the remaining 2 in the subagent brief for Open Decisions
 
   Scenario: Conflict between Q3 and Q7 triggers clarifying question
     Given Q3 = "Firebase" and Q7 = "no public cloud"
     When Phase 2 begins
     Then the skill asks which takes precedence before proceeding
-    And does not generate artifacts until answered or developer skips
-
-  Scenario: Vague Q1 triggers clarifying question
-    Given Q1 = "a mobile app"
-    When Phase 2 begins
-    Then the skill asks "What does it do and for whom?"
-    And records the answer before moving to the next clarifying question
-
-  Scenario: Developer skips — subagent fills gaps with documented assumptions
-    Given the developer skipped Phase 2 leaving Q2 platform unspecified
-    When the sdd-scaffold subagent generates constitution.md
-    Then constitution.md ## Open Decisions contains an assumption about the platform
-    And the assumption is clearly marked as needing developer confirmation
-
-  Scenario: Maximum 5 clarifying questions enforced
-    Given 7 issues were found in Phase 2 review
-    When the skill runs Phase 2
-    Then it asks at most 5 clarifying questions
-    And documents the remaining 2 issues in the subagent brief for Open Decisions
 
   Scenario: Fixed constraints appear in constitution.md Architecture Constraints
     Given answer 7 = "Must use PostgreSQL. Deploy to on-premise only. API < 200ms p99."
-    When the sdd-scaffold subagent runs
+    When the sdd-scaffold subagent runs in greenfield mode
     Then constitution.md ## Architecture Constraints contains all three constraints verbatim
-    And the subagent does NOT move them to Open Decisions (they are given, not unresolved)
 
-  Scenario: Subagent generates constitution.md with Open Decisions
-    Given answers to all 7 questions have been collected
-    When the sdd-scaffold subagent runs
-    Then constitution.md contains a populated Project Purpose section
-    And constitution.md contains an Open Decisions section listing unresolved choices
-    And constitution.md does NOT contain blank placeholder sections
+  Scenario: Q8 (user + success) populates Target Users and Success Criteria
+    Given answer 8 = "Primary user is a clinic nurse. Success = medication errors drop 50%."
+    When the sdd-scaffold subagent runs in greenfield mode
+    Then constitution.md ## Target Users mentions clinic nurse
+    And constitution.md ## Success Criteria mentions the 50% target
 
   Scenario: Safety-critical project gets T2 gates
     Given answer 4 = "yes — health monitoring and emergency services"
     When the sdd-scaffold subagent generates .ai-sdd/ai-sdd.yaml
-    Then the workflow overrides include policy_gate: { risk_tier: T2 } on define-requirements
-    And policy_gate: { risk_tier: T2 } on design-l1
+    Then the workflow overrides include policy_gate: { risk_tier: T2 }
 
-  Scenario: Quickfix project gets minimal config
+  Scenario: Quickfix scale gets minimal config
     Given answer 6 = "quickfix"
     When the sdd-scaffold subagent generates .ai-sdd/ai-sdd.yaml
     Then cost_budget_per_run_usd is 5.00 or less
     And overlays.hil.enabled is false
 
-  Scenario: Config is valid after scaffolding
-    Given the subagent has written all artifacts
+  Scenario: Config is valid after greenfield scaffolding
+    Given the subagent has written all greenfield artifacts
     When the subagent runs `ai-sdd validate-config` via Bash
     Then validate-config exits with code 0
 
-  Scenario: init-report.md is generated
-    Given the subagent has written constitution.md and ai-sdd.yaml
-    Then docs/init-report.md exists
-    And it contains a "Steps to start" section
-    And it contains a "What each agent will produce" table
-    And it contains an "Open decisions" section matching constitution.md
+Feature: /sdd-scaffold skill — brownfield-feature path
+
+  Scenario: Brownfield-feature asks 6 questions
+    Given mode is brownfield-feature
+    When the skill asks questions
+    Then it presents Q1-Q6: opener, feature name/scope, safety delta, affected modules, constraints, user+success
+    And does NOT ask about platform, tech stack, or project-level scale
+
+  Scenario: Brownfield-feature Phase 2 allows max 3 clarifying questions
+    Given mode is brownfield-feature
+    When the skill runs Phase 2
+    Then it asks at most 3 clarifying questions
+
+  Scenario: Brownfield-feature reads existing constitution for context
+    Given mode is brownfield-feature and constitution.md exists with content
+    When Phase 2 begins
+    Then the skill reads constitution.md to avoid asking about documented context
+
+  Scenario: Feature constitution written to specs/ not .ai-sdd/
+    Given mode is brownfield-feature and feature name = "user notifications"
+    When the sdd-scaffold subagent runs
+    Then specs/user-notifications/constitution.md is created
+    And .ai-sdd/constitutions/ is NOT created or modified
+    And root constitution.md is NOT modified
+
+  Scenario: Feature workflow created in .ai-sdd/workflows/
+    Given mode is brownfield-feature and feature slug = "user-notifications"
+    When the sdd-scaffold subagent runs
+    Then .ai-sdd/workflows/user-notifications.yaml is created
+
+  Scenario: Feature init report written to specs/
+    Given mode is brownfield-feature and feature slug = "user-notifications"
+    When the sdd-scaffold subagent runs
+    Then specs/user-notifications/init-report.md is created
+    And it contains the integration surface from Q4
+
+  Scenario: Feature constitution is picked up by resolver
+    Given specs/user-notifications/constitution.md exists
+    When the constitution resolver runs
+    Then the feature constitution is included in the merged result
+    And it appears after the root constitution
+
+Feature: /sdd-scaffold skill — brownfield-quickfix path
+
+  Scenario: Brownfield-quickfix asks 4 questions
+    Given mode is brownfield-quickfix
+    When the skill asks questions
+    Then it presents Q1-Q4: opener, bug description, safety implications, constraints
+    And does NOT ask about platform, stack, scale, user, or success criteria
+
+  Scenario: Brownfield-quickfix Phase 2 allows max 2 clarifying questions
+    Given mode is brownfield-quickfix
+    When the skill runs Phase 2
+    Then it asks at most 2 clarifying questions
+
+  Scenario: Quickfix does not generate feature constitution
+    Given mode is brownfield-quickfix
+    When the sdd-scaffold subagent runs
+    Then no file is created in specs/
+    And no feature constitution is generated
+
+  Scenario: Quickfix workflow and report are generated
+    Given mode is brownfield-quickfix and slug = "login-plus-sign-fix"
+    When the sdd-scaffold subagent runs
+    Then .ai-sdd/workflows/quickfix-login-plus-sign-fix.yaml is created
+    And docs/quickfix-login-plus-sign-fix-report.md is created
+
+Feature: /sdd-scaffold skill — shared behaviors (all modes)
+
+  Scenario: Skill announces skip option at start of Phase 2
+    Given all mode-specific answers have been collected
+    When the skill begins Phase 2
+    Then it displays a message containing "→ or 'skip'" before asking any question
+
+  Scenario: Skip request triggers confirmation before stopping
+    Given Phase 2 has begun and one clarifying question has been asked
+    When the developer responds with "→"
+    Then the skill asks for confirmation before stopping
+    And the skill does NOT yet spawn Task(sdd-scaffold)
+
+  Scenario: Developer confirms skip
+    Given the skill has asked for skip confirmation
+    When the developer responds with "yes" or "y"
+    Then the skill stops asking clarifying questions
+    And proceeds to spawn Task(sdd-scaffold) with answers collected so far
+
+  Scenario: Developer declines skip
+    Given the skill has asked for skip confirmation
+    When the developer responds with "no" or "keep going"
+    Then the skill resumes from the next unanswered clarifying question
+
+  Scenario: Subagent fills gaps with documented assumptions when developer skips
+    Given the developer skipped Phase 2
+    When the sdd-scaffold subagent generates artifacts
+    Then Open Decisions contains documented assumptions
+    And each is marked as needing developer confirmation
 
   Scenario: Existing requirements.md is incorporated
-    Given a requirements.md already exists in the project directory
-    When the subagent runs
-    Then it reads requirements.md before generating constitution.md
-    And the constitution reflects content from requirements.md
+    Given a requirements.md exists in the project directory
+    When the subagent runs (any mode)
+    Then it reads requirements.md before generating artifacts
 
 Feature: ai-sdd scaffold — headless path
 
@@ -459,7 +711,6 @@ Feature: ai-sdd scaffold — headless path
     Given a file project-brief.md containing a project description
     When `ai-sdd scaffold --description-file project-brief.md` is run
     Then the scaffold subagent is dispatched via the configured adapter
-    And constitution.md, ai-sdd.yaml, and docs/init-report.md are written
     And the command exits 0
 
   Scenario: CLI --skip-init flag skips init when already done
@@ -475,249 +726,21 @@ Feature: ai-sdd scaffold — headless path
 
 ### New integration files (copied by `ai-sdd init`)
 
-**`data/integration/claude-code/skills/sdd-scaffold/SKILL.md`**
-```yaml
----
-name: sdd-scaffold
-description: Scaffold a new ai-sdd project. Asks 7 clarifying questions then generates
-             constitution.md, ai-sdd.yaml, workflow config, and docs/init-report.md.
-             Run this once after init to set up a new project properly.
-context: fork
-allowed-tools: Bash, Task
----
-Scaffold an ai-sdd project. Follow these steps:
+**`data/integration/claude-code/skills/sdd-scaffold/SKILL.md`** — See the actual file
+for the full implementation. Key structure:
+- Context probe (silent bash: constitution.md, source dirs, git log, specs/*/constitution.md)
+- Q1: combined opener ("What are you building — new project, feature, or quick fix?")
+- Mode-dependent question paths: greenfield (Q2-Q8), brownfield-feature (Q2-Q6), brownfield-quickfix (Q2-Q4)
+- Phase 2: mode-scaled clarification limits (5/3/2)
+- Spawns Task(sdd-scaffold) with mode + answers
 
-1. Check if .ai-sdd/ exists. If not, run `ai-sdd init --tool claude_code` via Bash.
-
-2. Ask the developer these 7 questions ONE AT A TIME. After each question, add
-   "(type ? for help on this question)" on a new line. Wait for the developer's
-   response before continuing.
-
-   If the developer responds with "?" (or "help", "?help", "more info"):
-   - Show the detailed help text for that question (see below)
-   - Re-ask the same question
-   - Wait for a real answer before moving to the next question
-
-   Questions:
-   Q1: What are you building?
-       [? help]: Describe the core problem and for whom. One or two sentences focusing
-       on purpose and user, not technical details. Example: "A mobile app that helps
-       elderly users manage medications and stay connected with family."
-
-   Q2: Target platform(s)?
-       Options: mobile iOS · mobile Android · web frontend · backend API · desktop ·
-       embedded/IoT · other (list all that apply)
-       [? help]: Where does the software run?
-       - Mobile iOS: iPhone/iPad; access to HealthKit, CoreML, on-device LLM
-       - Mobile Android: Android phones; Health Connect, TensorFlow Lite
-       - Web frontend: runs in a browser; React, Vue, Angular
-       - Backend API: server-side REST or GraphQL service
-       - Desktop: Windows/macOS/Linux; Electron, Tauri
-       - Embedded/IoT: hardware with constrained resources
-       List all that apply. Describe the device the end user touches if unsure.
-
-   Q3: Tech stack preferences — or "none, let the architect decide"?
-       [? help]: Only list things already decided or constrained (existing team skills,
-       systems to extend). Leave the rest open. Examples: "TypeScript + Bun + PostgreSQL",
-       "Must use Python — team has no other skills", "none — let the architect decide".
-
-   Q4: Does this project involve safety-critical features? (yes/no + brief description)
-       [? help]: Safety-critical = a failure could directly harm a person, cause
-       significant financial loss, or create serious legal liability. Examples: health
-       monitoring, emergency alerts, financial transactions, systems used by vulnerable
-       users, autonomous decisions with real-world impact. If yes: T2 gates + paired
-       review are applied automatically.
-
-   Q5: Privacy or compliance requirements?
-       Options: GDPR · HIPAA · SOC2 · PCI-DSS · APRA CPS 234 · Children's data ·
-       none/unknown
-       [? help]: Regulations that impose design constraints.
-       - GDPR: EU data protection (any EU users' data)
-       - HIPAA: US healthcare patient records
-       - SOC2: security certification for B2B SaaS
-       - PCI-DSS: payment card processing or storage
-       - APRA CPS 234: Australian financial sector cybersecurity
-       - Children's data: COPPA (US), UK Children's Code
-
-   Q6: Expected scale?
-       Options: quickfix · feature · greenfield product · regulated enterprise
-       [? help]:
-       - Quickfix: known bug, hours to a day; workflow: implement → review; cost ~$5
-       - Feature: new capability in existing system, one sprint; cost ~$15
-       - Greenfield product: new system from scratch, all 6 agents, weeks/months; cost ~$25
-       - Regulated enterprise: formal audit trail + T2 gates throughout, months; cost ~$50
-
-   Q7: What are your fixed constraints?
-       List anything that is given and cannot be changed — or answer "none".
-       [? help]: Fixed constraints are boundaries the architect must work within, not decide.
-       Examples by category:
-       - Existing systems: "Must integrate with our SAP ERP"
-       - Technology mandates: "All backend must be Python"
-       - Performance SLAs: "API responses < 200ms at p99"
-       - Budget: "Hosting budget $200/month maximum"
-       - Team: "One developer, 10h/week"
-       - Deployment: "On-premise servers only — no public cloud"
-       - Data residency: "All user data must remain in Australia"
-       - Integrations: "Must use our existing Azure AD for SSO"
-       Anything you're hoping for but not requiring belongs in Q3 as a preference.
-
-3. Check for any existing requirements.md, brief.md, or similar files in the project root
-   via Bash and note their paths.
-
-4. PHASE 2 — Review answers and ask targeted clarifying questions.
-
-   Before asking anything, say:
-   "Thanks — just a few follow-up questions to fill in any gaps.
-   Type → or 'skip' at any time to stop and proceed with what we have."
-
-   Review all 7 answers and any existing brief files for:
-   a) Answers too vague to generate a useful artifact
-   b) Conflicts between answers (e.g. "Firebase" in Q3 AND "no public cloud" in Q7)
-   c) Missing critical information that cannot be reasonably defaulted
-
-   Ask only the clarifying questions that are necessary. Maximum 5.
-   After each clarifying question, check if the developer's response is a skip signal
-   (→, skip, proceed, go ahead, enough, continue, s).
-   If so, ask for confirmation:
-     "Proceed with what we have? I'll fill any remaining gaps with defaults and document
-      assumptions in Open Decisions. [yes / no, keep going]"
-   - On yes (y, yes, ok, sure, confirm): stop asking and proceed to step 5
-   - On no (n, no, keep going): resume from the next unanswered clarifying question
-
-   Do NOT ask about:
-   - Minor vagueness where a reasonable default exists
-   - Tech preferences (the architect decides those)
-   - Future features or nice-to-haves
-
-5. Spawn Task(sdd-scaffold) with a brief containing:
-   - All 7 answers
-   - All clarifying answers collected in Phase 2 (or note "developer skipped")
-   - Paths of any existing brief/requirements files found in step 3
-   - The project directory path
-
-6. When the subagent returns:
-   - Show the developer: which files were created
-   - Show the Open Decisions list from the subagent's summary
-   - Say: "Review constitution.md, resolve the open decisions, then type /sdd-run to start."
-```
-
-**`data/integration/claude-code/agents/sdd-scaffold.md`**
-```yaml
----
-name: sdd-scaffold
-description: Generates constitution.md, ai-sdd.yaml, workflow config, and docs/init-report.md
-             from a project brief and 6 structured answers. Run via /sdd-scaffold skill only.
-tools: Read, Write, Bash, Glob
----
-You are the ai-sdd scaffolding agent. You receive a structured project brief and generate
-the configuration and documentation needed to start an ai-sdd workflow.
-
-Your inputs (passed in your task brief):
-- Answer 1: what is being built
-- Answer 2: target platform(s)
-- Answer 3: tech stack preferences
-- Answer 4: safety-critical features (yes/no + description)
-- Answer 5: compliance requirements
-- Answer 6: project scale
-- Answer 7: fixed constraints (non-negotiable rules, existing systems, SLAs, etc.)
-- Clarifying answers from Phase 2 (may be empty if developer skipped)
-- Paths of any existing requirements/brief files in the project
-
-When the developer skipped Phase 2 or answers are still incomplete after clarification:
-- Apply reasonable defaults for anything not specified
-- Document every assumption in constitution.md ## Open Decisions with the assumption
-  you made and a note that the developer should confirm it
-- Do NOT block or fail — generate the best possible artifacts from available information
-
-Your job:
-1. Read any existing brief files listed in your task inputs.
-2. Write constitution.md using the template below. Fill every section from the brief.
-   Do NOT leave placeholder text. Where you cannot determine something, put it in the
-   "Open Decisions" section with a clear question the developer must answer.
-3. Write .ai-sdd/ai-sdd.yaml with settings tuned to the project (see tuning rules below).
-4. Write .ai-sdd/workflows/default-sdd.yaml using the most appropriate base workflow
-   with overrides for safety-critical or compliance requirements.
-5. Run `ai-sdd validate-config` via Bash. If it fails, fix the config and retry.
-6. Write docs/init-report.md (see template below).
-7. Return a summary: files created, open decisions list, recommended first step.
-
---- CONSTITUTION TEMPLATE ---
-# Constitution
-
-## Project Purpose
-[Clear problem statement: what this system does and for whom]
-
-## Target Users
-[Who uses the system directly; who is affected by it]
-
-## Platform & Tech Stack
-[Platforms, languages, frameworks, databases, hosting]
-
-## Architecture Constraints
-[Non-negotiable constraints: offline requirements, data residency, latency budgets,
- safety requirements, compliance boundaries]
-
-## Standards
-[Accessibility, privacy, security baselines that all agents must follow]
-
-## Open Decisions
-[List decisions that could not be determined from the brief.
- Each item must be a specific question the developer can answer.
- Example: "Which local LLM model? (Phi-3-mini | Llama 3.2 | Gemma 2B)"]
-
-## Artifact Manifest
-<!-- AUTO-GENERATED by ai-sdd engine after each task — do not edit this section -->
-
---- TUNING RULES ---
-Safety-critical (answer 4 = yes):
-  → policy_gate T2 on define-requirements and design-l1
-  → paired: { enabled: true } on implement
-  → confidence: { enabled: true, threshold: 0.85 } on implement
-
-Compliance (answer 5 != none):
-  → security.injection_detection_level: quarantine
-  → policy_gate T2 on define-requirements
-
-Scale → quickfix:
-  → cost_budget_per_run_usd: 5.00; hil: { enabled: false }; base: 01-quickfix
-Scale → feature:
-  → cost_budget_per_run_usd: 15.00; base: 02-agile-feature
-Scale → greenfield:
-  → cost_budget_per_run_usd: 25.00; base: 05-greenfield-product
-Scale → regulated enterprise:
-  → cost_budget_per_run_usd: 50.00; max_rework_iterations: 5; base: 06-regulated-enterprise
-
-Fixed constraints (answer 7):
-  → write verbatim into constitution.md ## Architecture Constraints section
-  → if technology mandates: note in constitution.md ## Platform & Tech Stack
-  → if data residency: note in constitution.md ## Architecture Constraints AND
-    add to compliance section in ai-sdd.yaml security config
-
---- INIT REPORT TEMPLATE ---
-# Project Setup Report
-
-## What was scaffolded
-[List each file created or updated]
-
-## Open decisions
-[Repeat the Open Decisions from constitution.md with brief context for each]
-
-## Steps to start
-1. Resolve all open decisions in constitution.md
-2. Review and adjust .ai-sdd/ai-sdd.yaml if needed
-3. Open project in Claude Code and type /sdd-run
-
-## Configuration rationale
-[Explain each non-default setting and why it was chosen based on the project answers]
-
-## What each agent will produce
-| Agent | Output | Key decisions it will make |
-|---|---|---|
-[Fill based on the selected workflow]
-
-## Estimated cost
-[Rough estimate based on workflow complexity and cost_budget_per_run_usd]
-```
+**`data/integration/claude-code/agents/sdd-scaffold.md`** — See the actual file
+for the full implementation. Key structure:
+- Three mode sections: greenfield, brownfield-feature, brownfield-quickfix
+- Greenfield: generates constitution.md, ai-sdd.yaml, workflow, docs/init-report.md
+- Brownfield-feature: generates specs/<feature-slug>/constitution.md, feature workflow, specs/<feature-slug>/init-report.md
+- Brownfield-quickfix: generates quickfix workflow, docs/quickfix-<slug>-report.md
+- `.ai-sdd/` is framework-only — feature artifacts go in `specs/<feature-slug>/`
 
 ### New CLI command
 
@@ -753,15 +776,16 @@ Register the `scaffold` command alongside `init`, `run`, etc.
     sdd-le.md
     sdd-dev.md
     sdd-reviewer.md
-    sdd-scaffold.md        ← NEW: scaffolding agent
+    sdd-scaffold.md        ← scaffolding agent (excluded from init copy — pre-init only)
   skills/
     sdd-run/SKILL.md
     sdd-status/SKILL.md
-    sdd-scaffold/SKILL.md  ← NEW: scaffolding skill
+    sdd-scaffold/SKILL.md  ← scaffolding skill
 ```
 
-No changes needed to `installClaudeCode` — it already copies all files from
-`data/integration/claude-code/agents/` and `data/integration/claude-code/skills/`.
+Note: `sdd-scaffold.md` agent is intentionally excluded from the init copy (see
+`EXCLUDED_AGENTS` in `init.ts`) because it's a pre-init scaffolding agent used via
+the `/sdd-scaffold` skill, not a workflow execution agent.
 
 ---
 
@@ -771,9 +795,14 @@ No changes needed to `installClaudeCode` — it already copies all files from
 - Unit: scaffold command calls `ai-sdd init` unless `--skip-init` is passed
 - Unit: `sdd-scaffold` agent file exists in `data/integration/claude-code/agents/`
 - Unit: `sdd-scaffold` skill file exists in `data/integration/claude-code/skills/sdd-scaffold/`
-- Integration: `ai-sdd init --tool claude_code` copies sdd-scaffold agent and skill
-- Manual: Run `/sdd-scaffold` in Claude Code on the elderly-ai-assistant example;
-  verify constitution.md is populated, validate-config passes, init-report.md created
+- Unit: Constitution resolver includes `specs/*/constitution.md` files
+- Unit: Feature constitutions merge in alphabetical order by directory name
+- Unit: Empty `specs/` directory does not break constitution resolution
+- Integration: `ai-sdd init --tool claude_code` copies sdd-scaffold skill
+- Manual: Run `/sdd-scaffold` in a greenfield repo → detects greenfield, asks 8 questions,
+  generates root constitution.md
+- Manual: Run `/sdd-scaffold` in this repo (brownfield) → detects brownfield, asks 6
+  feature questions, generates `specs/<feature>/constitution.md` without touching root
 
 ## Rollback / Fallback
 
@@ -782,3 +811,4 @@ No changes needed to `installClaudeCode` — it already copies all files from
 - If `ai-sdd validate-config` fails after generation, the subagent retries once with
   corrected config; if it still fails, it writes the error to init-report.md and exits
 - Existing `constitution.md` with content is extended (new sections appended), not overwritten
+- Brownfield-feature mode never touches root constitution.md — feature constitutions go to `specs/<feature-slug>/`
