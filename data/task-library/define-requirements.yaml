@@ -8,5 +8,5 @@ overlays:
   hil:         { enabled: true }    # BA output typically needs stakeholder review
   policy_gate: { risk_tier: T0 }    # acceptance: index must be present
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}/index.md"
+  - path: "specs/{{task_id}}.md"
     contract: requirements_doc

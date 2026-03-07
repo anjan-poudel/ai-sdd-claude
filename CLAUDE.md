@@ -84,7 +84,19 @@ MCP server delegates to this command; it never writes files directly.
 
 **Workflow defaults + task library** — `workflow-loader.ts` applies a 4-layer merge per task: `ENGINE_TASK_DEFAULTS` → workflow `defaults:` block → task library template (`use:`) → task inline. Engine built-ins: `hil.enabled=true`, `policy_gate.risk_tier=T1`, `max_rework_iterations=3`. Overlay keys merge individually (not whole-object replace). `{{task_id}}` in library output paths is substituted at load time.
 
-**Workflow lookup order** (first found wins): `.ai-sdd/workflow.yaml` → `.ai-sdd/workflows/default-sdd.yaml` → bundled framework default.
+**Output structure** — `.ai-sdd/` is runtime-only (state, HIL queue, workflow engine files). Workflow artifacts go in `specs/`:
+- Greenfield project: `specs/<task-id>.md` (e.g. `specs/define-requirements.md`, `specs/design-l1.md`)
+- Feature artifacts: `specs/<feature>/<task-id>.md` (e.g. `specs/my-feature/design-l1.md`)
+- Task breakdown: `specs/<task-id>/plan.md` + `specs/<task-id>/tasks/` (hierarchical, Jira-style TG-NN/T-NNN)
+- Workflow definitions: `specs/workflow.yaml` (greenfield) or `specs/<feature>/workflow.yaml` (feature)
+
+**Workflow lookup order** (first found wins, `run` and `complete-task`):
+1. `--workflow <name>` → `.ai-sdd/workflows/<name>.yaml`
+2. `--feature <name>` → `specs/<feature>/workflow.yaml`
+3. `specs/workflow.yaml` (greenfield — workflow lives alongside specs docs)
+4. `.ai-sdd/workflow.yaml` (backward compat)
+5. `.ai-sdd/workflows/default-sdd.yaml`
+6. Bundled framework default
 
 **Expression DSL** — all `exit_conditions` and gate expressions go through `src/dsl/parser.ts` + `evaluator.ts`. No `eval()` or `exec()` anywhere in the codebase.
 
@@ -106,9 +118,9 @@ Every state file carries `schema_version: "1"`. Version mismatch at startup → 
 ## CLI Commands Reference
 
 ```
-ai-sdd run [--resume] [--task <id>] [--dry-run] [--step]
-ai-sdd status [--json] [--next --json] [--metrics]
-ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp>
+ai-sdd run [--resume] [--task <id>] [--dry-run] [--step] [--workflow <name>] [--feature <name>]
+ai-sdd status [--json] [--next --json] [--metrics] [--workflow <name>]
+ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp> [--feature <name>]
 ai-sdd validate-config
 ai-sdd constitution [--task <id>]
 ai-sdd hil list [--json] | show <id> | resolve <id> [--notes] | reject <id> [--reason]

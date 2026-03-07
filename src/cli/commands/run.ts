@@ -29,6 +29,8 @@ export function registerRunCommand(program: Command): void {
     .option("--task <id>", "Run specific task and its unmet dependencies")
     .option("--dry-run", "Print execution plan without making LLM calls")
     .option("--step", "Pause after each task group")
+    .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
+    .option("--feature <name>", "Feature name (loads specs/<name>/workflow.yaml)")
     .option("--project <path>", "Project directory", process.cwd())
     .action(async (options) => {
       const projectPath = resolve(options.project as string);
@@ -40,11 +42,23 @@ export function registerRunCommand(program: Command): void {
 
       const config = loadProjectConfig(projectPath);
 
-      // Load workflow — search order:
-      //   1. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
-      //   2. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
-      //   3. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
-      //   4. bundled framework default
+      // Load workflow — search order (first match wins):
+      //   0. --workflow <name>                               (CLI flag, highest priority)
+      //   1. specs/<feature>/workflow.yaml                  (--feature flag)
+      //   2. specs/workflow.yaml                            (greenfield — workflow lives with specs)
+      //   3. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
+      //   4. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
+      //   5. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
+      //   6. bundled framework default
+      const cliWorkflowName = options.workflow as string | undefined;
+      const cliWorkflowPath = cliWorkflowName
+        ? resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`)
+        : null;
+      const featureName = options.feature as string | undefined;
+      const featureWorkflowPath = featureName
+        ? resolve(projectPath, "specs", featureName, "workflow.yaml")
+        : null;
+      const specsWorkflowPath = resolve(projectPath, "specs", "workflow.yaml");
       const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
       const configWorkflowName = config.workflow as string | undefined;
       const configWorkflowPath = configWorkflowName
@@ -54,7 +68,21 @@ export function registerRunCommand(program: Command): void {
       const bundledDefaultPath = resolve(
         new URL("../../../data/workflows/default-sdd.yaml", import.meta.url).pathname,
       );
-      const wfPath = existsSync(workflowPath) ? workflowPath
+
+      if (cliWorkflowPath && !existsSync(cliWorkflowPath)) {
+        console.error(`Workflow not found: ${cliWorkflowPath}`);
+        process.exit(1);
+      }
+
+      if (featureWorkflowPath && !existsSync(featureWorkflowPath)) {
+        console.error(`Feature workflow not found: ${featureWorkflowPath}`);
+        process.exit(1);
+      }
+
+      const wfPath = (cliWorkflowPath && existsSync(cliWorkflowPath)) ? cliWorkflowPath
+                   : (featureWorkflowPath && existsSync(featureWorkflowPath)) ? featureWorkflowPath
+                   : existsSync(specsWorkflowPath) ? specsWorkflowPath
+                   : existsSync(workflowPath) ? workflowPath
                    : (configWorkflowPath && existsSync(configWorkflowPath)) ? configWorkflowPath
                    : existsSync(initCopiedPath) ? initCopiedPath
                    : existsSync(bundledDefaultPath) ? bundledDefaultPath

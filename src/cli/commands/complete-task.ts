@@ -32,10 +32,12 @@ export function registerCompleteTaskCommand(program: Command): void {
     .requiredOption("--content-file <tmp>", "Temp file holding artifact content")
     .option("--contract <name>", "Artifact contract to validate against")
     .option("--allow-legacy-untyped-artifacts", "Skip contract validation for untyped artifacts")
+    .option("--feature <name>", "Feature name (loads specs/<name>/workflow.yaml)")
     .option("--project <path>", "Project directory", process.cwd())
     .action(async (options) => {
       const projectPath = resolve(options.project as string);
       const taskId = options.task as string;
+      const featureName = options.feature as string | undefined;
       const outputPathRaw = options.outputPath as string;
       const contentFile = resolve(options.contentFile as string);
       const contractName = options.contract as string | undefined;
@@ -59,12 +61,13 @@ export function registerCompleteTaskCommand(program: Command): void {
       }
 
       // Validate output path is declared in the task definition
-      const declaredOutputs = loadDeclaredOutputs(projectPath, taskId);
+      const declaredOutputs = loadDeclaredOutputs(projectPath, taskId, featureName);
       if (declaredOutputs !== null && declaredOutputs.length > 0) {
         const normalizedRel = rel.replace(/\\/g, "/");
         const allowed = declaredOutputs.some((p) => {
-          const normalizedDeclared = p.replace(/\\/g, "/");
-          return normalizedRel === normalizedDeclared;
+          const norm = p.replace(/\\/g, "/");
+          if (norm.endsWith("/")) return normalizedRel.startsWith(norm);
+          return normalizedRel === norm;
         });
         if (!allowed) {
           console.error(
@@ -184,9 +187,17 @@ export function registerCompleteTaskCommand(program: Command): void {
  * Load the declared output paths for a task from the workflow YAML.
  * Returns the list of declared paths, null if the workflow cannot be loaded,
  * or an empty array if the task has no declared outputs.
+ *
+ * Lookup order (first found wins):
+ *   1. specs/<feature>/workflow.yaml  (if --feature is set)
+ *   2. specs/workflow.yaml            (greenfield — workflow lives with specs)
+ *   3. .ai-sdd/workflow.yaml          (backward compat)
+ *   4. .ai-sdd/workflows/default-sdd.yaml
  */
-function loadDeclaredOutputs(projectPath: string, taskId: string): string[] | null {
+function loadDeclaredOutputs(projectPath: string, taskId: string, featureName?: string): string[] | null {
   const wfPaths = [
+    ...(featureName ? [resolve(projectPath, "specs", featureName, "workflow.yaml")] : []),
+    resolve(projectPath, "specs", "workflow.yaml"),
     resolve(projectPath, ".ai-sdd", "workflow.yaml"),
     resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
   ];

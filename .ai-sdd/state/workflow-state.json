@@ -3,77 +3,72 @@
   "workflow": "default-sdd",
   "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude",
   "started_at": "2026-03-07T07:51:19.725Z",
-  "updated_at": "2026-03-07T07:53:02.399Z",
+  "updated_at": "2026-03-07T09:02:33.159Z",
   "tasks": {
     "define-requirements": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
-      "outputs": [
-        ".ai-sdd/outputs/define-requirements/index.md"
-      ],
-      "iterations": 1
+      "status": "FAILED",
+      "started_at": "2026-03-07T07:51:19.731Z",
+      "completed_at": "2026-03-07T09:02:33.159Z",
+      "outputs": [],
+      "iterations": 1,
+      "hil_item_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4"
+        }
+      },
+      "error": "HIL timeout: HIL item 'a2fbbf26-88ba-487c-870a-7506e53e5ce4' timed out after 3600000ms"
     },
     "design-l1": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
-      "outputs": [
-        ".ai-sdd/outputs/design-l1.md"
-      ],
-      "iterations": 1
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
     },
     "review-l1": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
       "outputs": [],
-      "iterations": 1
+      "iterations": 0
     },
     "design-l2": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
-      "outputs": [
-        ".ai-sdd/outputs/design-l2.md"
-      ],
-      "iterations": 1
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
     },
     "review-l2": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
       "outputs": [],
-      "iterations": 1
+      "iterations": 0
     },
     "plan-tasks": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
-      "outputs": [
-        ".ai-sdd/outputs/plan-tasks/plan.md"
-      ],
-      "iterations": 1
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
     },
     "implement": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:53:02.399Z",
-      "completed_at": "2026-03-07T07:53:02.399Z",
-      "outputs": [
-        ".ai-sdd/outputs/implement-notes.md"
-      ],
-      "iterations": 1
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
     },
     "review-implementation": {
-      "status": "COMPLETED",
-      "started_at": "2026-03-07T07:52:44.592Z",
-      "completed_at": "2026-03-07T07:52:54.931Z",
-      "outputs": [
-        {
-          "path": ".ai-sdd/outputs/review-implementation.md"
-        }
-      ],
-      "iterations": 2
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
     }
   }
 }
