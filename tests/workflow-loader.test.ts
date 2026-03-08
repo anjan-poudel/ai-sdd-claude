@@ -477,3 +477,108 @@ describe("WorkflowLoader: T022 example workflows load with defaults", () => {
     });
   }
 });
+
+describe("WorkflowLoader: validateOverlayConstraints", () => {
+  it("rejects llm_judge without evaluator_agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+`, LIBRARY_DIR),
+    ).toThrow(/evaluator_agent/);
+  });
+
+  it("rejects llm_judge when evaluator_agent equals task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+            evaluator_agent: dev-agent
+`, LIBRARY_DIR),
+    ).toThrow(/cannot judge its own output/);
+  });
+
+  it("accepts llm_judge when evaluator_agent differs from task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+            evaluator_agent: reviewer-agent
+`, LIBRARY_DIR),
+    ).not.toThrow();
+  });
+
+  it("rejects paired overlay without challenger_agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+`, LIBRARY_DIR),
+    ).toThrow(/challenger_agent/);
+  });
+
+  it("rejects paired overlay when challenger_agent equals task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+        challenger_agent: dev-agent
+`, LIBRARY_DIR),
+    ).toThrow(/Reviewer independence required/);
+  });
+
+  it("accepts paired overlay when challenger differs from task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+        challenger_agent: reviewer-agent
+`, LIBRARY_DIR),
+    ).not.toThrow();
+  });
+});

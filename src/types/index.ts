@@ -91,12 +91,24 @@ export interface TaskOverlays {
   confidence?: {
     enabled?: boolean;
     threshold?: number;
+    metrics?: Array<{
+      type: string;
+      weight?: number;
+      evaluator_agent?: string;
+    }>;
   };
   paired?: {
     enabled?: boolean;
+    driver_agent?: string;
+    challenger_agent?: string;
+    role_switch?: "session" | "subtask" | "checkpoint";
+    max_iterations?: number;
   };
   review?: {
     enabled?: boolean;
+    coder_agent?: string;
+    reviewer_agent?: string;
+    max_iterations?: number;
   };
 }
 

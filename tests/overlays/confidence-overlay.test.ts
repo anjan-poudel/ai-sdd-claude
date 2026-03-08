@@ -125,3 +125,94 @@ describe("ConfidenceOverlay: uses eval/scorer.ts metrics", () => {
     expect(scoreWith).toBeGreaterThanOrEqual(scoreWithout);
   });
 });
+
+describe("ConfidenceOverlay: llm_judge dispatch", () => {
+  function makeMockAdapter(score: number): import("../../src/adapters/base-adapter.ts").RuntimeAdapter {
+    return {
+      dispatch_mode: "direct" as const,
+      adapter_type: "mock",
+      retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
+      async dispatch(): Promise<import("../../src/types/index.ts").TaskResult> {
+        return { status: "COMPLETED", handover_state: { score } };
+      },
+      async dispatchWithRetry(task_id: string, ctx: import("../../src/types/index.ts").AgentContext, opts: import("../../src/adapters/base-adapter.ts").DispatchOptions) {
+        return this.dispatch(task_id, ctx, opts);
+      },
+      async healthCheck() { return true; },
+    } as import("../../src/adapters/base-adapter.ts").RuntimeAdapter;
+  }
+
+  function makeCtxWithJudge(taskAgent: string, evaluatorAgent: string): OverlayContext {
+    return {
+      task_id: "test-task",
+      workflow_id: "wf",
+      run_id: "run-1",
+      task_definition: {
+        id: "test-task",
+        agent: taskAgent,
+        description: "Test",
+        overlays: {
+          confidence: {
+            metrics: [{ type: "llm_judge", evaluator_agent: evaluatorAgent }],
+          },
+        },
+      },
+      agent_context: {
+        ...BASE_AGENT_CTX,
+        task_definition: { id: "test-task", agent: taskAgent, description: "Test" },
+      },
+    };
+  }
+
+  it("dispatches evaluator agent and folds judge score into confidence", async () => {
+    const adapter = makeMockAdapter(0.9);
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0.5 }, adapter);
+    const result = await overlay.postTask(
+      makeCtxWithJudge("dev", "reviewer"),
+      { status: "COMPLETED", outputs: [{ path: "out.md" }], handover_state: {} },
+    );
+    expect(result.accept).toBe(true);
+    const evalResult = (result.data as Record<string, unknown>)?.["eval_result"] as Record<string, unknown>;
+    const metrics = evalResult?.["metrics"] as Array<{ type: string }>;
+    const judgeMetric = metrics?.find((m) => m.type === "llm_judge");
+    expect(judgeMetric).toBeDefined();
+  });
+
+  it("handles judge returning score=0.0 (low quality output)", async () => {
+    const adapter = makeMockAdapter(0.0);
+    // High threshold → should fail with llm_judge at 0
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0.9 }, adapter);
+    const result = await overlay.postTask(
+      makeCtxWithJudge("dev", "reviewer"),
+      { status: "COMPLETED", outputs: [{ path: "out.md" }], handover_state: {} },
+    );
+    // Score will include llm_judge=0 which pulls score below 0.9 threshold
+    expect(result.accept).toBe(false);
+    expect(result.new_status).toBe("NEEDS_REWORK");
+  });
+
+  it("scores 0.5 neutral when judge dispatch fails and continues (does not abort)", async () => {
+    const failAdapter: import("../../src/adapters/base-adapter.ts").RuntimeAdapter = {
+      dispatch_mode: "direct" as const,
+      adapter_type: "mock",
+      retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
+      async dispatch(): Promise<import("../../src/types/index.ts").TaskResult> {
+        return { status: "FAILED", error: "agent unavailable" };
+      },
+      async dispatchWithRetry(t: string, c: import("../../src/types/index.ts").AgentContext, o: import("../../src/adapters/base-adapter.ts").DispatchOptions) { return this.dispatch(t, c, o); },
+      async healthCheck() { return true; },
+    } as import("../../src/adapters/base-adapter.ts").RuntimeAdapter;
+
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0.0 }, failAdapter);
+    const result = await overlay.postTask(
+      makeCtxWithJudge("dev", "reviewer"),
+      { status: "COMPLETED", outputs: [{ path: "out.md" }], handover_state: {} },
+    );
+    // Should still complete evaluation despite judge failure
+    expect(result.accept).toBe(true);
+    const evalResult = (result.data as Record<string, unknown>)?.["eval_result"] as Record<string, unknown>;
+    const metrics = evalResult?.["metrics"] as Array<{ type: string; score: number }>;
+    const judgeMetric = metrics?.find((m) => m.type === "llm_judge");
+    expect(judgeMetric?.score).toBe(0.5);
+  });
+});

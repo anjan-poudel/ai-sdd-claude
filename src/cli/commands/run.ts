@@ -15,7 +15,9 @@ import { createAdapter } from "../../adapters/factory.ts";
 import { HilOverlay } from "../../overlays/hil/hil-overlay.ts";
 import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
 import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
+import { ReviewLogWriter } from "../../overlays/review/review-log.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
+import { PairSession } from "../../overlays/paired/pair-session.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
 import { buildProviderChain } from "../../overlays/registry.ts";
 import { resolveBackendTools } from "../../overlays/mcp/mcp-client.ts";
@@ -220,9 +222,9 @@ export function registerRunCommand(program: Command): void {
             emitter,
           ),
           policy_gate: new PolicyGateOverlay(outputsDir, emitter),
-          review: new ReviewOverlay(emitter, { enabled: false }),
-          paired: new PairedOverlay(emitter, { enabled: false }),
-          confidence: new ConfidenceOverlay(emitter),
+          review: new ReviewOverlay(emitter, { enabled: false }, adapter, ReviewLogWriter.logDir(projectPath)),
+          paired: new PairedOverlay(emitter, { enabled: false }, adapter, PairSession.sessionDir(projectPath)),
+          confidence: new ConfidenceOverlay(emitter, {}, adapter),
         },
         ...(remoteConfig !== undefined && { remoteConfig }),
         ...(resolvedTools !== undefined && { resolvedBackendTools: resolvedTools }),

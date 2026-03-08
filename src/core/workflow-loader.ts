@@ -36,17 +36,31 @@ const TaskOverlayPolicyGateSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+const TaskOverlayConfidenceMetricSchema = z.object({
+  type: z.string(),
+  weight: z.number().min(0).max(1).optional(),
+  evaluator_agent: z.string().optional(),
+});
+
 const TaskOverlayConfidenceSchema = z.object({
   enabled: z.boolean().optional(),
   threshold: z.number().min(0).max(1).optional(),
+  metrics: z.array(TaskOverlayConfidenceMetricSchema).optional(),
 });
 
 const TaskOverlayPairedSchema = z.object({
   enabled: z.boolean().optional(),
+  driver_agent: z.string().optional(),
+  challenger_agent: z.string().optional(),
+  role_switch: z.enum(["session", "subtask", "checkpoint"]).optional(),
+  max_iterations: z.number().int().positive().optional(),
 });
 
 const TaskOverlayReviewSchema = z.object({
   enabled: z.boolean().optional(),
+  coder_agent: z.string().optional(),
+  reviewer_agent: z.string().optional(),
+  max_iterations: z.number().int().positive().optional(),
 });
 
 const TaskOverlaysSchema = z.object({
@@ -118,9 +132,9 @@ function normalizeTaskOutputs(
 type LooseTaskOverlays = {
   hil?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
   policy_gate?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
-  confidence?: { enabled?: boolean | undefined; threshold?: number | undefined } | undefined;
-  paired?: { enabled?: boolean | undefined } | undefined;
-  review?: { enabled?: boolean | undefined } | undefined;
+  confidence?: { enabled?: boolean | undefined; threshold?: number | undefined; metrics?: Array<{ type: string; weight?: number; evaluator_agent?: string }> | undefined } | undefined;
+  paired?: { enabled?: boolean | undefined; driver_agent?: string | undefined; challenger_agent?: string | undefined; role_switch?: "session" | "subtask" | "checkpoint" | undefined; max_iterations?: number | undefined } | undefined;
+  review?: { enabled?: boolean | undefined; coder_agent?: string | undefined; reviewer_agent?: string | undefined; max_iterations?: number | undefined } | undefined;
 };
 
 function normalizeTaskOverlays(
@@ -145,16 +159,24 @@ function normalizeTaskOverlays(
     normalized.confidence = {
       ...(overlays.confidence.enabled !== undefined && { enabled: overlays.confidence.enabled }),
       ...(overlays.confidence.threshold !== undefined && { threshold: overlays.confidence.threshold }),
+      ...(overlays.confidence.metrics !== undefined && { metrics: overlays.confidence.metrics }),
     };
   }
   if (overlays.paired !== undefined) {
     normalized.paired = {
       ...(overlays.paired.enabled !== undefined && { enabled: overlays.paired.enabled }),
+      ...(overlays.paired.driver_agent !== undefined && { driver_agent: overlays.paired.driver_agent }),
+      ...(overlays.paired.challenger_agent !== undefined && { challenger_agent: overlays.paired.challenger_agent }),
+      ...(overlays.paired.role_switch !== undefined && { role_switch: overlays.paired.role_switch }),
+      ...(overlays.paired.max_iterations !== undefined && { max_iterations: overlays.paired.max_iterations }),
     };
   }
   if (overlays.review !== undefined) {
     normalized.review = {
       ...(overlays.review.enabled !== undefined && { enabled: overlays.review.enabled }),
+      ...(overlays.review.coder_agent !== undefined && { coder_agent: overlays.review.coder_agent }),
+      ...(overlays.review.reviewer_agent !== undefined && { reviewer_agent: overlays.review.reviewer_agent }),
+      ...(overlays.review.max_iterations !== undefined && { max_iterations: overlays.review.max_iterations }),
     };
   }
 
@@ -283,6 +305,9 @@ export class WorkflowLoader {
     // Validate that all dependencies reference existing tasks
     WorkflowLoader.validateDependencies(config);
 
+    // Validate overlay constraints (llm_judge independence, paired reviewer independence)
+    WorkflowLoader.validateOverlayConstraints(config);
+
     // Detect cycles using Kahn's algorithm; also compute parallel groups
     const plan = WorkflowLoader.buildExecutionPlan(config);
 
@@ -340,7 +365,7 @@ export class WorkflowLoader {
       if (template.overlays) {
         resolved.overlays = deepMergeOverlays(
           resolved.overlays ?? {},
-          normalizeTaskOverlays(template.overlays) ?? {},
+          normalizeTaskOverlays(template.overlays as LooseTaskOverlays) ?? {},
         );
       }
       if (template.max_rework_iterations !== undefined) {
@@ -430,6 +455,58 @@ export class WorkflowLoader {
         if (!taskIds.has(dep)) {
           throw new Error(
             `Task '${taskId}' depends on '${dep}' which does not exist in the workflow`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate overlay constraints:
+   * - llm_judge metrics require evaluator_agent ≠ task agent
+   * - paired overlay: challenger_agent must differ from task agent
+   */
+  private static validateOverlayConstraints(config: WorkflowConfig): void {
+    for (const [taskId, task] of Object.entries(config.tasks)) {
+      // llm_judge validation
+      for (const metric of task.overlays?.confidence?.metrics ?? []) {
+        if (metric.type === "llm_judge") {
+          if (!metric.evaluator_agent) {
+            throw new Error(
+              `Task '${taskId}': llm_judge metric requires evaluator_agent to be set`,
+            );
+          }
+          if (metric.evaluator_agent === task.agent) {
+            throw new Error(
+              `Task '${taskId}': llm_judge evaluator_agent ('${metric.evaluator_agent}') must differ from task agent ('${task.agent}'). An agent cannot judge its own output.`,
+            );
+          }
+        }
+      }
+
+      // Review overlay: if reviewer_agent is set, it must differ from coder_agent/task agent
+      if (task.overlays?.review?.enabled) {
+        const reviewerAgent = task.overlays.review.reviewer_agent;
+        const coderAgent = task.overlays.review.coder_agent ?? task.agent;
+        if (reviewerAgent && reviewerAgent === coderAgent) {
+          throw new Error(
+            `Task '${taskId}': review overlay reviewer_agent ('${reviewerAgent}') must differ from coder_agent ('${coderAgent}'). Reviewer independence required.`,
+          );
+        }
+      }
+
+      // Paired overlay: challenger must differ from driver/task agent
+      if (task.overlays?.paired?.enabled) {
+        const challengerAgent = task.overlays.paired.challenger_agent;
+        const driverAgent = task.overlays.paired.driver_agent ?? task.agent;
+        if (challengerAgent && challengerAgent === driverAgent) {
+          throw new Error(
+            `Task '${taskId}': paired overlay challenger_agent ('${challengerAgent}') must differ from driver agent ('${driverAgent}'). Reviewer independence required.`,
+          );
+        }
+        if (!challengerAgent) {
+          throw new Error(
+            `Task '${taskId}': paired overlay enabled but challenger_agent is not set`,
           );
         }
       }
