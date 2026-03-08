@@ -4,6 +4,6 @@
 
 | Task | Path | Contract | Status | Date |
 |------|------|----------|--------|------|
-| review-implementation | `.ai-sdd/outputs/review-implementation.md` | `—` | COMPLETED | 2026-03-07 |
+| review-implementation | `specs/review-implementation.md` | `—` | COMPLETED | 2026-03-08 |
 
 <!-- end:workflow-artifacts -->

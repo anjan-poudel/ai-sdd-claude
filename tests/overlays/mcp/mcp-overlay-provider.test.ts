@@ -258,7 +258,7 @@ describe("McpOverlayProvider: Tier 1 transport failures — failure_policy", () 
     expect(decision.feedback).toContain("Subprocess crashed");
   });
 
-  it("7. transport error + failure_policy=skip → verdict PASS; emits overlay.remote.fallback with skip policy", async () => {
+  it("7. transport error + failure_policy=skip → verdict PASS; emits overlay.remote.fallback with skip policy; does NOT emit overlay.remote.failed", async () => {
     const { emitter, events } = makeEmitter();
     const factory = makeMockClientFactory({
       connectError: new Error("Connection refused"),
@@ -278,6 +278,10 @@ describe("McpOverlayProvider: Tier 1 transport failures — failure_policy", () 
     const fallbackEvent = events.find((e) => e.type === "overlay.remote.fallback");
     expect(fallbackEvent).toBeDefined();
     expect(fallbackEvent?.data["failure_policy"]).toBe("skip");
+
+    // FR-008 AC: skip policy must NOT emit overlay.remote.failed (guards Finding 1 resolution)
+    const failedEvent = events.find((e) => e.type === "overlay.remote.failed");
+    expect(failedEvent).toBeUndefined();
   });
 
   it("8. blocking=false + transport error + failure_policy=fail_closed → verdict PASS (blocking:false overrides to warn)", async () => {

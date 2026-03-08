@@ -12,7 +12,8 @@ import { createManifestWriter } from "../src/constitution/manifest-writer.ts";
 import { MockAdapter } from "../src/adapters/mock-adapter.ts";
 import { ObservabilityEmitter } from "../src/observability/emitter.ts";
 import { LocalOverlayProvider } from "../src/overlays/local-overlay-provider.ts";
-import type { OverlayProvider } from "../src/types/overlay-protocol.ts";
+import { buildProviderChain } from "../src/overlays/registry.ts";
+import type { OverlayProvider, OverlayDecision, OverlayContext } from "../src/types/overlay-protocol.ts";
 import type { BaseOverlay, OverlayContext as LegacyContext, OverlayResult } from "../src/overlays/base-overlay.ts";
 import { rmSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, join } from "path";
@@ -404,6 +405,51 @@ describe("Engine: HIL resume (T025)", () => {
     expect(mockHil.preTaskCalled).toContain("task-a");
     // awaitResolution should also have been called (triggered by preTask's hil_trigger)
     expect(mockHil.awaitCalled).toHaveLength(1);
+    expect(result.completed).toContain("task-a");
+  });
+});
+
+// ── Chain-builder integration wiring test (CLAUDE.md §2, ROA-T-011) ──────────
+//
+// Development Standards §2: when component A (buildProviderChain) is wired into
+// component B (Engine), there must be a test verifying A's output is passed to B
+// and actually used. Unit tests of each component in isolation are insufficient.
+
+describe("Engine: buildProviderChain wiring integration (ROA-T-011)", () => {
+  it("buildProviderChain output is used by engine's runPreProviderChain", async () => {
+    // Arrange: track invocations via a spy BaseOverlay
+    const invokedTaskIds: string[] = [];
+    const spyBaseOverlay: BaseOverlay & { preTask: (ctx: LegacyContext) => Promise<OverlayResult> } = {
+      name: "chain-builder-spy",
+      enabled: true,
+      async preTask(ctx: LegacyContext): Promise<OverlayResult> {
+        invokedTaskIds.push(ctx.task_id);
+        return { proceed: true };
+      },
+    };
+
+    // Build the provider chain using buildProviderChain (the component under integration)
+    const chain = buildProviderChain({
+      localOverlays: {
+        // Use spyBaseOverlay as the HIL slot — it is first in chain order
+        hil: spyBaseOverlay,
+      },
+    });
+
+    // chain must be non-empty and contain our spy wrapped in LocalOverlayProvider
+    expect(chain.length).toBeGreaterThan(0);
+    expect(chain[0]!.id).toBe("chain-builder-spy");
+
+    // Wire the chain into the Engine (the integration point)
+    const { engine } = makeEngineWithOverlays(SINGLE_TASK_WORKFLOW, {
+      providerChain: chain,
+    });
+
+    // Act: run the engine
+    const result = await engine.run();
+
+    // Assert: the spy's invokePre was called (verifying chain was passed to runPreProviderChain)
+    expect(invokedTaskIds).toContain("task-a");
     expect(result.completed).toContain("task-a");
   });
 });

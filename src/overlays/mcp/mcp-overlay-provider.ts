@@ -137,6 +137,8 @@ export class McpOverlayProvider implements OverlayProvider {
 
       const input = buildInput(ctx, hook, taskResult, this.id, this.overlayConfig.config as Record<string, unknown> | undefined);
 
+      // Emitted before the MCP call is made — indicates the overlay is in-flight.
+      // overlay.remote.decision or overlay.remote.failed is emitted after resolution.
       this.emitter.emit("overlay.remote.invoked", {
         overlay_name: this.id,
         backend_id: backendId,
@@ -152,18 +154,10 @@ export class McpOverlayProvider implements OverlayProvider {
       const errorMessage = err instanceof Error ? err.message : String(err);
       const durationMs = Date.now() - start;
 
-      this.emitter.emit("overlay.remote.failed", {
-        overlay_name: this.id,
-        backend_id: backendId,
-        hook,
-        task_id: ctx.task_id,
-        failure_tier: "transport",
-        error_message: errorMessage,
-        duration_ms: durationMs,
-      });
-
       switch (effectivePolicy) {
         case "skip":
+          // skip: emit overlay.remote.fallback ONLY — no overlay.remote.failed.
+          // FR-008 AC: "no overlay.remote.failed event is emitted" for skip policy.
           this.emitter.emit("overlay.remote.fallback", {
             overlay_name: this.id,
             backend_id: backendId,
@@ -173,6 +167,16 @@ export class McpOverlayProvider implements OverlayProvider {
           });
           return { verdict: "PASS" };
         case "warn":
+          // warn: emit overlay.remote.failed so operators can diagnose, then fallback.
+          this.emitter.emit("overlay.remote.failed", {
+            overlay_name: this.id,
+            backend_id: backendId,
+            hook,
+            task_id: ctx.task_id,
+            failure_tier: "transport",
+            error_message: errorMessage,
+            duration_ms: durationMs,
+          });
           this.emitter.emit("overlay.remote.fallback", {
             overlay_name: this.id,
             backend_id: backendId,
@@ -182,6 +186,15 @@ export class McpOverlayProvider implements OverlayProvider {
           });
           return { verdict: "PASS" };
         case "fail_closed":
+          this.emitter.emit("overlay.remote.failed", {
+            overlay_name: this.id,
+            backend_id: backendId,
+            hook,
+            task_id: ctx.task_id,
+            failure_tier: "transport",
+            error_message: errorMessage,
+            duration_ms: durationMs,
+          });
           return { verdict: "FAIL", feedback: `Transport error: ${errorMessage}` };
       }
     } finally {

@@ -3,81 +3,137 @@
 ## Metadata
 - **Area:** Workflow Engine
 - **Priority:** MUST
-- **Source:** REMOTE-OVERLAY-PLAN.md §2.1, §6; remote-overlay-mcp-architecture-codex.md §Engine mapping; constitution.md Deliverables
+- **Source:** constitution.md — Deliverables, Constraints; `src/core/engine.ts` (applyPreDecision, applyPostDecision, runTask)
 
 ## Description
 
-The engine (`src/core/engine.ts`) must consume `OverlayDecision` values produced by the provider chain runner and map each verdict to the correct task state transition. The engine is the single enforcement point; no provider, wrapper, or chain runner may directly update task state.
+The engine (`src/core/engine.ts`) is the single enforcement point for translating
+`OverlayDecision` verdicts into task state transitions. No provider, wrapper, or chain runner
+may directly call `StateManager.transition()` or write to the state file.
 
-The required verdict-to-transition mapping is:
+### Verdict-to-transition table
 
-| Verdict | Task State Transition | Notes |
-|---------|----------------------|-------|
-| `PASS` | No change (continue execution) | Proceed to next overlay or dispatch agent |
-| `REWORK` | `NEEDS_REWORK` | Include `feedback` from `OverlayDecision` in rework context |
-| `FAIL` | `FAILED` | Terminal; include `feedback` and `evidence` in failure record |
-| `HIL` | `HIL_PENDING` | Enqueue for human review; include `feedback` and `evidence` |
+**Pre-task decisions** (`applyPreDecision`):
 
-These four mappings are exhaustive. The engine must use an exhaustive switch or equivalent construct so that TypeScript compilation fails if a new `OverlayVerdict` value is added without a corresponding mapping.
+| Verdict | Engine action | Return value |
+|---------|--------------|--------------|
+| `PASS` | Continue to agent dispatch | `"CONTINUE"` |
+| `REWORK` | `RUNNING → NEEDS_REWORK → RUNNING`; emit `task.rework` | `"NEEDS_REWORK"` |
+| `FAIL` | `RUNNING → FAILED`; emit `task.failed` | `"FAILED"` |
+| `HIL` | `RUNNING → HIL_PENDING`; emit `task.hil_pending`; await resolution | `"HIL_AWAITING"` |
 
-The engine must call the provider chain runner (`runPreProviderChain` / `runPostProviderChain`) in place of any direct overlay method calls. The engine must not call `OverlayProvider.invokePre` or `invokePost` directly.
+**Post-task decisions** (`applyPostDecision`):
 
-The `OverlayDecision.evidence` payload, when present, must be written to the task's state record so it is available to subsequent overlays and to the `ai-sdd status` command.
+| Verdict | Engine action | Return value |
+|---------|--------------|--------------|
+| `PASS` | Continue to `COMPLETED` transition | `"PASS"` |
+| `REWORK` | `RUNNING → NEEDS_REWORK → RUNNING`; emit `task.rework` | `"NEEDS_REWORK"` |
+| `FAIL` | `RUNNING → FAILED`; emit `task.failed` | `"FAILED"` |
+| `HIL` | Treated as `REWORK` (post-task HIL is not fully specified; conservative handling) | `"NEEDS_REWORK"` |
 
-The no-mutation invariant must be enforced: the engine must not allow an `OverlayDecision.updated_context` value from a remote provider to overwrite fields that govern task state (task ID, status, workflow ID, run ID). Remote providers may only suggest context additions for non-state fields.
+### Exhaustiveness requirement
 
-## Acceptance Criteria
+Both `applyPreDecision` and `applyPostDecision` must use an exhaustive switch statement over
+`OverlayVerdict`. The `default` branch must be an unreachable `never` type assertion:
+
+```typescript
+default: {
+  const _exhaustive: never = verdict;
+  throw new Error(`Unhandled OverlayVerdict: ${String(_exhaustive)}`);
+}
+```
+
+TypeScript compilation must fail if a new `OverlayVerdict` value is added without a
+corresponding case being added to both switch statements.
+
+### Provider chain call sites
+
+The engine must invoke `runPreProviderChain(this.providerChain, overlayCtx)` before agent
+dispatch and `runPostProviderChain(this.providerChain, overlayCtx, result)` after a successful
+agent dispatch. It must not call `OverlayProvider.invokePre` or `invokePost` directly.
+
+### Evidence persistence
+
+When an `OverlayDecision` includes an `evidence` field, the engine must write it to the task's
+`TaskState.overlay_evidence` field during the state transition. The evidence must then be
+readable via `stateManager.getTaskState(taskId).overlay_evidence` and visible in
+`ai-sdd status --json` output.
+
+### No-mutation invariant for `updated_context`
+
+When an `OverlayDecision` includes `updated_context`, the engine must apply it to the working
+`AgentContext` using `mergeContextUpdate`, which strips the identity fields
+`task_id`, `workflow_id`, `run_id`, and `status`. The engine must not pass raw
+`updated_context` directly to state transitions or downstream calls.
+
+### HIL resume path
+
+When the engine resumes a `HIL_PENDING` task (from persisted state on `--resume`), it must
+skip the pre-overlay chain entirely and call `awaitResolution` directly on the HIL overlay
+using the stored `hil_item_id`. This prevents the state machine reset bug where
+pre-overlays fire again and create duplicate HIL items.
+
+## Acceptance criteria
 
 ```gherkin
 Feature: Engine verdict-to-state mapping
 
-  Scenario: PASS verdict continues execution
+  Scenario: PASS verdict continues execution without state change
     Given a task in RUNNING state
-    And the provider chain returns verdict PASS
-    When the engine processes the OverlayDecision
-    Then the task remains in RUNNING state
-    And execution proceeds to the next step
+    And runPreProviderChain returns OverlayDecision with verdict PASS
+    When the engine calls applyPreDecision
+    Then the task status remains RUNNING
+    And execution proceeds to agent dispatch
 
-  Scenario: REWORK verdict transitions task to NEEDS_REWORK
+  Scenario: REWORK verdict from pre-task chain cycles the task
     Given a task in RUNNING state
-    And the provider chain returns verdict REWORK with feedback "Scope drift detected"
-    When the engine processes the OverlayDecision
+    And runPreProviderChain returns verdict REWORK with feedback "Scope drift detected"
+    When the engine calls applyPreDecision
     Then the task transitions to NEEDS_REWORK
-    And the rework context includes the feedback string "Scope drift detected"
+    And a task.rework event is emitted with the feedback message
+    And the task is re-armed to RUNNING for the next iteration
 
-  Scenario: FAIL verdict transitions task to FAILED
+  Scenario: FAIL verdict from pre-task chain terminates the task
     Given a task in RUNNING state
-    And the provider chain returns verdict FAIL
-    When the engine processes the OverlayDecision
+    And runPreProviderChain returns verdict FAIL with evidence
+    When the engine calls applyPreDecision
     Then the task transitions to FAILED
-    And the failure record includes the evidence from the OverlayDecision
+    And a task.failed event is emitted
+    And the evidence is written to the task state record
 
-  Scenario: HIL verdict transitions task to HIL_PENDING
+  Scenario: HIL verdict transitions task to HIL_PENDING and awaits resolution
     Given a task in RUNNING state
-    And the provider chain returns verdict HIL
-    When the engine processes the OverlayDecision
+    And runPreProviderChain returns verdict HIL
+    When the engine calls applyPreDecision
     Then the task transitions to HIL_PENDING
-    And the HIL queue entry includes the feedback and evidence
+    And a task.hil_pending event is emitted
+    And the engine awaits resolution via awaitResolution on the HIL overlay
 
-  Scenario: Adding a new verdict without engine mapping causes compile error
-    Given a new OverlayVerdict value "ESCALATE" is added to the type
-    When the engine's switch statement does not handle "ESCALATE"
+  Scenario: Adding a new OverlayVerdict without engine handler causes compile failure
+    Given OverlayVerdict is extended with a new value "ESCALATE"
+    When applyPreDecision or applyPostDecision does not have a case for "ESCALATE"
     Then TypeScript compilation fails with an exhaustive check error
 
-  Scenario: Remote provider updated_context cannot overwrite state fields
-    Given a remote provider that returns updated_context containing a modified task_id
-    When the engine applies the updated_context
-    Then the task_id in the state record is unchanged
-    And no state transition is triggered by the updated_context alone
-
-  Scenario: Evidence is persisted to task state record
-    Given a provider that returns an OverlayDecision with non-empty evidence
+  Scenario: Evidence in OverlayDecision is persisted to task state
+    Given a provider that returns OverlayDecision with non-empty evidence
     When the engine processes the decision
-    Then the evidence object is written to the task's state record
-    And subsequent reads of task state include the evidence
+    Then the evidence is written to TaskState.overlay_evidence
+    And getTaskState returns the evidence on subsequent reads
+
+  Scenario: identity fields in updated_context are stripped before application
+    Given a remote provider returns updated_context containing task_id "injected"
+    When the engine applies the context update via mergeContextUpdate
+    Then the task state record task_id remains the original value
+    And no state transition is triggered by the update alone
+
+  Scenario: HIL resume skips pre-overlay chain
+    Given a persisted state where a task is in HIL_PENDING with a valid hil_item_id
+    When the engine resumes the workflow with --resume
+    Then the pre-overlay chain is not invoked for that task
+    And awaitResolution is called directly with the stored hil_item_id
 ```
 
 ## Related
-- FR: FR-002 (OverlayDecision is the input), FR-006 (CANCELLED state used for future SKIP verdict)
-- NFR: NFR-002 (atomic state writes), NFR-003 (no-mutation invariant)
-- Depends on: FR-002, FR-004 (chain runner provides the OverlayDecision), FR-006
+- FR: FR-002 (OverlayDecision is the input), FR-004 (chain runner produces decisions), FR-006 (CANCELLED is available as a terminal state)
+- NFR: NFR-002 (atomic state writes, no unhandled exceptions), NFR-003 (no-mutation invariant)
+- Depends on: FR-002, FR-004, FR-006

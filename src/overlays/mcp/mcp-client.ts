@@ -27,6 +27,7 @@ export class McpNotConnectedError extends Error {
   }
 }
 
+/** Reserved for future use. Not raised in this release. */
 export class McpSchemaError extends Error {
   constructor(message: string) {
     super(message);

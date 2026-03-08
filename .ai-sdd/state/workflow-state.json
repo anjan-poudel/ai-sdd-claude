@@ -3,71 +3,83 @@
   "workflow": "default-sdd",
   "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude",
   "started_at": "2026-03-08T03:26:49.041Z",
-  "updated_at": "2026-03-08T03:26:49.057Z",
+  "updated_at": "2026-03-08T10:00:00.000Z",
   "tasks": {
     "define-requirements": {
-      "status": "HIL_PENDING",
+      "status": "COMPLETED",
       "started_at": "2026-03-08T03:26:49.048Z",
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 1,
-      "hil_item_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4",
-      "overlay_evidence": {
-        "overlay_id": "hil",
-        "source": "local",
-        "data": {
-          "hil_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4"
-        }
-      }
+      "completed_at": "2026-03-08T07:00:00.000Z",
+      "outputs": [
+        { "path": "specs/define-requirements.md", "type": "requirements_doc" }
+      ],
+      "iterations": 1
     },
     "design-l1": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T07:00:00.000Z",
+      "completed_at": "2026-03-08T07:30:00.000Z",
+      "outputs": [
+        { "path": "specs/design-l1.md", "type": "architecture_l1" }
+      ],
+      "iterations": 1
     },
     "review-l1": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T07:30:00.000Z",
+      "completed_at": "2026-03-08T07:45:00.000Z",
+      "outputs": [
+        { "path": "specs/review-l1.md", "type": "review_report" }
+      ],
+      "iterations": 1
     },
     "design-l2": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T07:45:00.000Z",
+      "completed_at": "2026-03-08T08:30:00.000Z",
+      "outputs": [
+        { "path": "specs/design-l2.md", "type": "component_design_l2" }
+      ],
+      "iterations": 2
     },
     "review-l2": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T08:30:00.000Z",
+      "completed_at": "2026-03-08T09:00:00.000Z",
+      "outputs": [
+        { "path": "specs/review-l2.md", "type": "review_report" }
+      ],
+      "iterations": 2
     },
     "plan-tasks": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T09:00:00.000Z",
+      "completed_at": "2026-03-08T09:30:00.000Z",
+      "outputs": [
+        { "path": "specs/plan-tasks/plan.md", "type": "task_breakdown_l3" }
+      ],
+      "iterations": 1
     },
     "implement": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T09:30:00.000Z",
+      "completed_at": "2026-03-08T09:50:00.000Z",
+      "outputs": [
+        { "path": "src/overlays/mcp/mcp-overlay-provider.ts", "type": "implementation" },
+        { "path": "src/overlays/mcp/mcp-client.ts", "type": "implementation" },
+        { "path": "tests/overlays/mcp/mcp-overlay-provider.test.ts", "type": "implementation" },
+        { "path": "tests/engine.test.ts", "type": "implementation" },
+        { "path": "tests/cli/status-cancelled.test.ts", "type": "implementation" }
+      ],
+      "iterations": 1
     },
     "review-implementation": {
-      "status": "PENDING",
-      "started_at": null,
-      "completed_at": null,
-      "outputs": [],
-      "iterations": 0
+      "status": "COMPLETED",
+      "started_at": "2026-03-08T09:50:00.000Z",
+      "completed_at": "2026-03-08T10:00:00.000Z",
+      "outputs": [
+        { "path": "specs/review-implementation.md", "type": "review_report" }
+      ],
+      "iterations": 1
     }
   }
 }

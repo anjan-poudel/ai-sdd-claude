@@ -1,15 +1,15 @@
 {
-  "id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4",
+  "id": "cebdd0e7-cff6-436d-af50-c1fcf9414d09",
   "task_id": "define-requirements",
   "workflow_id": "default-sdd",
-  "status": "RESOLVED",
+  "status": "REJECTED",
   "reason": "HIL triggered for task 'define-requirements'",
   "context": {
     "task_description": "Elicit and document requirements for the Remote Overlay Abstraction.\nPRIMARY INPUT: specs/merge-coding-standards/REMOTE-OVERLAY-PLAN.md\nAlso reference: specs/merge-coding-standards/remote-overlay-mcp-architecture-codex.md\nAlso reference: specs/merge-coding-standards/hybrid-mcp-sidecar-strategy-codex.md\nAlso reference: constitution.md for scope, NFRs, and constraints.\n\nProduce structured FR and NFR files covering:\n- OverlayProvider interface and provider types (Local, MCP)\n- OverlayDecision normalized verdict contract\n- McpClientWrapper and MCP overlay protocol (overlay.invoke)\n- Provider chain construction and composition rules\n- Config schema (overlay_backends, remote_overlays)\n- CANCELLED task state addition\n- Engine verdict mapping\n- Remote failure handling (skip/warn/fail_closed)\n- Observability events for remote overlay lifecycle\n",
     "risk_tier": "T0",
     "agent": "ba"
   },
-  "created_at": "2026-03-07T06:44:26.082Z",
-  "notes": "Requirements reviewed and approved by BA agent. 9 FRs and 4 NFRs captured.",
-  "resolved_at": "2026-03-08T07:12:47.499Z"
+  "created_at": "2026-03-08T07:24:39.755Z",
+  "rejection_reason": "Stale HIL item from accidental workflow restart — define-requirements task is already COMPLETED with HIL a2fbbf26 approved",
+  "rejected_at": "2026-03-08T07:32:04.998Z"
 }

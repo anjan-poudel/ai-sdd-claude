@@ -11,24 +11,26 @@
 
 ## Open decisions
 
-1. **CLI sidecar transport scope**: The constitution marks `CliOverlayProvider` as out of scope (constitution.md §Out of scope), while REMOTE-OVERLAY-PLAN.md Phase 3 includes it as the pragmatic first transport (ROA-009). These requirements capture both `McpOverlayProvider` (in scope per constitution) and `CliOverlayProvider` (described in REMOTE-OVERLAY-PLAN.md). The implementing architect must confirm which transport to build first before Phase 3 begins.
+1. **CLI sidecar transport scope**: `constitution.md` marks the CLI sidecar transport as out of scope for this release (`"CLI sidecar transport (future work)"`). The config schema (`FR-005`) includes `runtime: z.enum(["cli", "mcp"])` and `McpClientWrapper` references `CliOverlayProvider` in some error messages. The implementing architect must confirm whether `CliOverlayProvider` is to be built in Phase 1 or stubbed with an explicit unsupported-runtime error (the current registry does the latter). These requirements treat `McpOverlayProvider` as the only concrete remote provider for this release.
 
-2. **SKIP verdict**: The task brief references a SKIP verdict and CANCELLED as its triggered state. REMOTE-OVERLAY-PLAN.md uses only four verdicts (PASS, REWORK, FAIL, HIL) and maps CANCELLED to manual/governance FAIL scenarios. FR-006 and FR-007 do not require a SKIP verdict; they require CANCELLED as a reachable state. This alignment should be confirmed before implementation.
+2. **SKIP verdict**: These requirements do not introduce a `SKIP` `OverlayVerdict`. `CANCELLED` is added as a terminal `TaskStatus` reachable via manual operator action or future governance decisions. If a `SKIP` verdict is required by the coding-standards overlay, `OverlayVerdict` and `FR-007` must be revised before implementation begins.
 
-3. **`governance_mode: enforce` promotion path**: The current requirements cover `warn` mode only. The transition from `warn` to `enforce` is out of scope for this release but the config schema (FR-005) must be designed to accommodate it without breaking changes.
+3. **`governance_mode: enforce` promotion**: The `governance.requirements_lock` config field (FR-005) accepts `"off" | "warn" | "enforce"`. Current requirements cover the `"warn"` behavior only. Promotion to `"enforce"` is out of scope for this release but the schema must not require breaking changes when it is added.
 
-4. **SSE transport**: FR-003 explicitly excludes SSE as a transport. If SSE support is required before Phase 3 is complete, FR-003 must be revised.
+4. **SSE/HTTP transport**: FR-003 explicitly limits MCP transport to `stdio`. If SSE or HTTP transport is required before Phase 3, FR-003 and `McpClientWrapper` must be revised to accept those values.
+
+5. **Post-task HIL from remote overlays**: FR-007 specifies that a `HIL` verdict from the post-task chain is conservatively treated as `REWORK`. If remote post-task overlays need to trigger true human-in-the-loop gating, this requires a dedicated design pass and schema change.
 
 ## Out of scope
 
 The following are explicitly excluded from this release:
 
-- Merging `coding-standards`' 15-state workflow state machine into ai-sdd
-- Running `coding-standards`' graph/lock tools directly from the engine (bypassing `overlay.invoke`)
-- Remote overlays writing artifacts or mutating ai-sdd state
+- Merging coding-standards' 15-state workflow state machine into ai-sdd
+- Running coding-standards' graph/lock tools directly from the engine (bypassing `overlay.invoke`)
+- Remote overlays writing artifacts or mutating ai-sdd state directly
 - `governance_mode: enforce` promotion (future release)
 - SSE and HTTP MCP transport modes
-- The `overlay.invoke` MCP facade implementation on the `coding-standards` server side (tracked separately)
+- `CliOverlayProvider` concrete implementation (config schema accepts `"cli"` runtime; actual provider is future work)
+- The `overlay.invoke` MCP facade implementation on the coding-standards server (tracked in that repo)
 - Planning review as a remote pre-task overlay (future work)
 - Release readiness evaluation as a remote post-workflow overlay (future work)
-- Language-specific standards from coding-standards (`java/`, `kotlin/`)

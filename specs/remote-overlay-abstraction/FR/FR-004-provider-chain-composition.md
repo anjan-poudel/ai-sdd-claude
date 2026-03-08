@@ -1,111 +1,147 @@
-# FR-004: Provider Chain Composition
+# FR-004: Provider Chain Construction and Composition Rules
 
 ## Metadata
 - **Area:** Overlay Orchestration
 - **Priority:** MUST
-- **Source:** REMOTE-OVERLAY-PLAN.md §4.3, §5; constitution.md Constraints; hybrid-mcp-sidecar-strategy-codex.md §Proposed Chain
+- **Source:** constitution.md — Deliverables, Constraints; `src/overlays/registry.ts` (buildProviderChain); `src/overlays/provider-chain.ts` (runPreProviderChain, runPostProviderChain); `src/overlays/composition-rules.ts` (validateProviderCombination)
 
 ## Description
 
-The system must provide a provider chain builder (`src/overlays/registry.ts`) and a chain runner (`src/overlays/provider-chain.ts`) that together replace the current direct overlay invocation in the engine.
+The system must provide a provider chain builder and a chain runner that together replace the
+direct overlay invocations previously scattered through the engine. The engine must call the
+chain runner functions exclusively; it must not call provider `invokePre` or `invokePost`
+methods directly.
 
-### Provider Registry (`src/overlays/registry.ts`)
+### Provider registry (`src/overlays/registry.ts`)
 
-The registry must compile configuration into an ordered list of `OverlayProvider` instances by performing the following steps in order:
+The `buildProviderChain(input: RegistryInput): OverlayProvider[]` function must assemble the
+full chain from local and remote config by following these steps in strict order:
 
-1. Construct `LocalOverlayProvider` instances for all built-in overlays (HIL, policy gate, review, paired, confidence) from the existing overlay configuration.
-2. Construct `CliOverlayProvider` or `McpOverlayProvider` instances for each entry in `remote_overlays`, resolving the referenced `overlay_backends` entry to obtain the backend configuration.
-3. Return an error if a `remote_overlays` entry references a backend ID that does not exist in `overlay_backends`.
+1. If `localOverlays.hil` is provided, wrap it in `LocalOverlayProvider` and add it first.
+2. For each entry in `remoteConfig.remote_overlays` (in YAML declaration order):
+   a. Skip entries with `enabled: false`.
+   b. Resolve the backend from `remoteConfig.overlay_backends[cfg.backend]`. If not found, throw `RegistryError` naming the missing backend ID.
+   c. Construct `McpOverlayProvider`. Any other backend runtime throws `RegistryError` naming the unsupported runtime.
+3. Wrap `localOverlays.policy_gate` in `LocalOverlayProvider` and add it.
+4. Check mutual exclusion: if both `review.enabled` and `paired.enabled` are true, throw `RegistryError`.
+5. Wrap `localOverlays.review` and `localOverlays.paired` in `LocalOverlayProvider` and add whichever is present.
+6. Wrap `localOverlays.confidence` in `LocalOverlayProvider` and add it.
+7. Validate the completed chain with `validateProviderCombination(chain)`. If invalid, throw `RegistryError` with all validation error messages joined.
 
-### Chain Order (locked)
+The function must require an `ObservabilityEmitter` in `input` when `remote_overlays` entries
+are present; otherwise the emitter is optional.
 
-The composed chain must always follow this order:
+### Locked chain order
+
+The assembled chain must always follow this order:
 
 ```
-HIL (local) → Remote overlays (insertion order from config) → Policy Gate (local) → Agentic Review (local) → Paired Workflow (local) → Confidence (local)
+HIL (local) → Remote overlays (config insertion order) → Policy Gate (local) → Review (local) OR Paired (local) → Confidence (local)
 ```
 
-This order is invariant. Configuration may not reorder local overlays relative to each other or relative to the remote overlay slot. Remote overlays occupy the slot between HIL and Policy Gate.
+This order is an invariant. Configuration may not place remote overlays after `policy_gate`.
+Violation of this invariant must be caught and thrown as a `RegistryError` at build time.
 
-### Chain Runner (`src/overlays/provider-chain.ts`)
+### Chain runner (`src/overlays/provider-chain.ts`)
 
-The chain runner must expose two functions:
+`runPreProviderChain` and `runPostProviderChain` must implement the following rules:
 
-```typescript
-function runPreProviderChain(
-  chain: OverlayProvider[],
-  ctx: OverlayContext,
-): Promise<OverlayDecision>
+1. Skip providers where `enabled` is `false`.
+2. Skip providers that do not declare the relevant hook (`"pre_task"` or `"post_task"`).
+3. Skip providers where `phases` is set and the task's `phase` field does not appear in the list.
+4. Invoke the provider's `invokePre` / `invokePost`. If the invocation throws, catch the error and convert it to `OverlayDecision { verdict: "FAIL", feedback: "Provider '${id}' threw unexpectedly: ${message}" }`.
+5. If the verdict is not `"PASS"`, stop processing and return the decision immediately (short-circuit).
+6. If the verdict is `"PASS"` and `updated_context` is present, apply it using `mergeContextUpdate` (which strips identity fields) before passing context to the next provider.
+7. If all providers return `"PASS"`, return `{ verdict: "PASS" }`.
 
-function runPostProviderChain(
-  chain: OverlayProvider[],
-  ctx: OverlayContext,
-  result: TaskResult,
-): Promise<OverlayDecision>
-```
+### `mergeContextUpdate` invariant
 
-Chain execution rules:
+A helper `mergeContextUpdate(ctx, update)` must strip the fields `task_id`, `workflow_id`,
+`run_id`, and `status` from any `updated_context` before merging it into the current
+`OverlayContext`. This enforces the no-mutation invariant for context forwarding between
+providers.
 
-1. Only invoke providers that declare the relevant hook (`pre_task` or `post_task`).
-2. Apply phase filtering: skip a provider if `provider.phases` is set and does not include `ctx.task.phase`.
-3. Stop on the first non-`PASS` verdict and return that `OverlayDecision` to the engine.
-4. If all providers return `PASS`, return an `OverlayDecision` with verdict `PASS`.
-5. Skip disabled providers (`provider.enabled === false`) without invoking them.
+### Composition validation
 
-### Composition Rule Compatibility
+`validateProviderCombination` in `src/overlays/composition-rules.ts` must enforce:
 
-The chain runner must extend (not replace) the existing composition rules in `src/overlays/composition-rules.ts`. The existing rule that Paired and Review are mutually exclusive must remain enforced. The new rule is that remote overlays must not be positioned after Policy Gate in the chain; the registry must enforce this at build time.
+- **Invariant 1**: The HIL local provider must be first in the enabled chain.
+- **Invariant 5**: Paired and Review are mutually exclusive — both enabled simultaneously is an error.
+- **Invariant 6** (new): No remote provider may appear after `policy_gate` in the chain.
 
-## Acceptance Criteria
+The existing `validateOverlayCombination` function must not be modified; the new
+`validateProviderCombination` function operates on `OverlayProvider[]` and runs after
+`buildProviderChain` assembles the chain.
+
+## Acceptance criteria
 
 ```gherkin
-Feature: Provider chain composition and execution
+Feature: Provider chain construction and execution
 
-  Scenario: Chain is built in locked order
-    Given a config with HIL enabled, one remote overlay, and policy_gate enabled
-    When the registry builds the provider chain
-    Then the chain order is: HIL → remote overlay → policy_gate
-    And no local overlay appears before HIL in the chain
+  Scenario: Chain is built in locked order with HIL, remote, and policy_gate
+    Given a config with HIL enabled, one remote overlay enabled, and policy_gate enabled
+    When buildProviderChain is called
+    Then the chain order is: HIL (runtime "local") → remote overlay (runtime "mcp") → policy_gate (runtime "local")
+
+  Scenario: Remote overlay after policy_gate is rejected at build time
+    Given a chain where a remote overlay is added after the policy_gate step
+    When validateProviderCombination runs
+    Then it throws RegistryError naming Invariant 6 and the offending index
+
+  Scenario: Unknown backend reference is rejected at build time
+    Given a remote_overlays entry with backend "missing-backend"
+    And "missing-backend" is not in overlay_backends
+    When buildProviderChain is called
+    Then it throws RegistryError naming the missing backend ID
+
+  Scenario: Emitter is required when remote overlays are present
+    Given a RegistryInput with remote_overlays but no emitter
+    When buildProviderChain is called
+    Then it throws RegistryError stating an ObservabilityEmitter is required
 
   Scenario: First non-PASS verdict short-circuits the chain
-    Given a chain of three providers
-    And the first returns PASS
-    And the second returns REWORK
-    And the third would return PASS
+    Given a chain of three providers where the second returns REWORK
     When runPreProviderChain is called
-    Then the returned OverlayDecision has verdict REWORK
+    Then the OverlayDecision has verdict "REWORK"
     And the third provider's invokePre is never called
 
-  Scenario: All providers return PASS
-    Given a chain of three providers all returning PASS
-    When runPreProviderChain is called
-    Then the returned OverlayDecision has verdict PASS
+  Scenario: Unhandled provider exception is converted to FAIL decision
+    Given a provider whose invokePre throws an unexpected Error
+    When runPreProviderChain processes that provider
+    Then the chain returns OverlayDecision with verdict "FAIL"
+    And the feedback message contains the provider id and the error message
+    And no exception propagates out of runPreProviderChain
 
-  Scenario: Phase filtering skips non-matching providers
-    Given a remote overlay configured with phases: ["planning", "design"]
+  Scenario: Phase-filtered provider is skipped without invocation
+    Given a remote provider with phases ["planning"]
     And the current task has phase "implementation"
-    When runPreProviderChain is called
+    When runPreProviderChain processes the chain
     Then the remote provider's invokePre is not called
     And the chain continues to the next provider
 
-  Scenario: Disabled provider is skipped
-    Given a provider with enabled: false
-    When the chain runner processes the chain
-    Then the disabled provider's invoke methods are never called
+  Scenario: Disabled provider is never invoked
+    Given a provider with enabled: false in the chain
+    When runPreProviderChain processes the chain
+    Then the disabled provider's invokePre is never called
 
-  Scenario: Unknown backend reference is rejected at build time
-    Given a remote_overlays entry referencing backend "nonexistent-backend"
-    When the registry builds the provider chain
-    Then it throws a configuration error naming the missing backend ID
-    And no providers are returned
+  Scenario: Context update from PASS decision is forwarded to next provider
+    Given a chain of two providers
+    And the first returns PASS with updated_context containing a non-identity field
+    When runPreProviderChain processes the chain
+    Then the second provider's invokePre receives a context that includes the updated field
 
-  Scenario: Mutual exclusion of Paired and Review is preserved
-    Given a chain where both Review and Paired providers are present and enabled
-    When the registry validates the composition rules
-    Then it throws a composition error identical to the pre-existing behavior
+  Scenario: Identity fields stripped from updated_context
+    Given a provider that returns PASS with updated_context containing task_id "injected"
+    When mergeContextUpdate applies the update
+    Then the resulting context's task_id is unchanged from the original
+
+  Scenario: Paired and Review mutual exclusion preserved
+    Given both review and paired providers are enabled
+    When buildProviderChain validates the composition
+    Then it throws RegistryError with the Invariant 5 message
 ```
 
 ## Related
-- FR: FR-001 (OverlayProvider), FR-002 (OverlayDecision), FR-005 (config schema drives registry)
-- NFR: NFR-004 (backward compatibility — existing 177 tests must pass)
+- FR: FR-001 (OverlayProvider interface), FR-002 (OverlayDecision), FR-005 (config schema drives input), FR-007 (engine calls chain runner, not individual providers)
+- NFR: NFR-002 (provider exception must not crash the engine), NFR-004 (backward compatibility — existing composition rules unchanged)
 - Depends on: FR-001, FR-002, FR-005

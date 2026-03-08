@@ -487,3 +487,62 @@ Ran 472 tests across 28 files.
 ### TypeScript
 
 `bun run typecheck` — zero errors in `src/overlays/mcp/mcp-overlay-provider.ts` and `src/cli/commands/run.ts` after changes.
+
+---
+
+## ROA-T-011 — Integration and Regression Tests
+
+**Status**: Complete
+
+### What Was Implemented
+
+**Gap 1 — McpSchemaError JSDoc** (`src/overlays/mcp/mcp-client.ts`):
+
+Added `/** Reserved for future use. Not raised in this release. */` JSDoc comment to the `McpSchemaError` class declaration. Satisfies L2 review Finding 3 (non-blocking).
+
+**Gap 2 — Skip-policy source fix + assertion** (`src/overlays/mcp/mcp-overlay-provider.ts`, `tests/overlays/mcp/mcp-overlay-provider.test.ts`):
+
+The source code had a bug: for `failure_policy: "skip"`, `overlay.remote.failed` was emitted before `overlay.remote.fallback`. This violated FR-008 AC: "no overlay.remote.failed event is emitted" for skip policy and L2 review-l2 Finding 1 resolution.
+
+**Source fix**: Restructured the transport error handler to emit `overlay.remote.failed` only for `warn` and `fail_closed` policies. The `skip` case now emits only `overlay.remote.fallback`.
+
+**Test assertion added** to test 7:
+```typescript
+const failedEvent = events.find((e) => e.type === "overlay.remote.failed");
+expect(failedEvent).toBeUndefined();
+```
+
+**Gap 3 — overlay.remote.invoked comment** (`src/overlays/mcp/mcp-overlay-provider.ts`):
+
+Added a comment at the `overlay.remote.invoked` emit site clarifying in-flight semantics.
+
+**Gap 4 — Three missing integration tests**:
+
+1. **Chain-builder wiring test** in `tests/engine.test.ts` (`buildProviderChain wiring integration` describe block): Calls `buildProviderChain` with a spy BaseOverlay, passes the resulting chain to Engine, asserts spy's `preTask` was invoked during engine run. Satisfies Development Standards §2.
+
+2. **`ai-sdd status` CANCELLED display e2e test** in `tests/cli/status-cancelled.test.ts` (two tests): Writes state with CANCELLED/FAILED tasks, runs actual CLI via `Bun.spawn`, asserts `⊘` in stdout for CANCELLED, `✗` for FAILED, and separate counts in summary line.
+
+3. **`overlay_evidence` in `status --json`** in `tests/cli/status-cancelled.test.ts` (one test): Writes state with `overlay_evidence` on a task, runs `ai-sdd status --json`, parses JSON output, asserts all evidence fields are preserved (not stripped by serializer).
+
+### Test Results
+
+```
+509 pass
+0 fail
+899 expect() calls
+Ran 509 tests across 30 files.
+```
+
+Baseline was 505 tests. 4 new tests added (1 engine wiring + 2 CANCELLED display + 1 overlay_evidence JSON).
+
+### TypeScript
+
+No new type errors introduced in source files. One new pre-existing-pattern error in test file (`Bun` global not in tsc types — same pattern as existing `tests/config/remote-overlay-schema.test.ts` which has had this error since it was created).
+
+### Decisions Made
+
+1. **Source fix was required for Gap 2**: Adding `expect(failedEvent).toBeUndefined()` would have failed without fixing the source — the skip path was incorrectly emitting `overlay.remote.failed` first. Fixed source to match the FR-008 design.
+
+2. **CLI tests use `Bun.spawn` async**: The new CLI integration tests use the async `Bun.spawn` API since the test bodies are async. Consistent with the project's use of `Bun.spawnSync` in `tests/config/remote-overlay-schema.test.ts`.
+
+3. **Chain-builder wiring test placed in `tests/engine.test.ts`**: Per task spec. While `tests/core/engine-provider-chain.test.ts` tests Engine with manually-constructed chains, it does not test that `buildProviderChain`'s output is the entry point. The new test in `tests/engine.test.ts` closes this gap.
