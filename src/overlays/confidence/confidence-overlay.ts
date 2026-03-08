@@ -29,15 +29,28 @@ export class ConfidenceOverlay implements BaseOverlay {
   ): Promise<PostTaskOverlayResult> {
     const evalResult = computeConfidence(ctx.task_id, this.buildMetrics(result));
 
+    const belowThreshold = evalResult.confidence_score < this.threshold;
+
     this.emitter.emit("confidence.computed", {
       task_id: ctx.task_id,
       score: evalResult.confidence_score,
       threshold: this.threshold,
-      advisory: true,
+      below_threshold: belowThreshold,
       metrics: evalResult.metrics,
     });
 
-    // Advisory only — always accept regardless of score
+    if (belowThreshold) {
+      // Score below threshold → require rework so the agent can improve output quality.
+      return {
+        accept: false,
+        new_status: "NEEDS_REWORK",
+        feedback:
+          `Confidence score ${evalResult.confidence_score.toFixed(2)} is below threshold ` +
+          `${this.threshold.toFixed(2)}. Improve output completeness and quality.`,
+        data: { confidence_score: evalResult.confidence_score, eval_result: evalResult },
+      };
+    }
+
     return {
       accept: true,
       new_status: "COMPLETED",

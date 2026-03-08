@@ -24,11 +24,43 @@ const ctx: OverlayContext = {
 };
 
 describe("ConfidenceOverlay: uses eval/scorer.ts metrics", () => {
-  it("always accepts (advisory only)", async () => {
+  it("accepts when score >= threshold (default 0.7)", async () => {
     const overlay = new ConfidenceOverlay(emitter);
     const result = await overlay.postTask(ctx, {
       status: "COMPLETED",
       outputs: [{ path: "out.md" }],
+      handover_state: {},
+    });
+    // Default threshold is 0.7; output with 1 output + neutral contract should pass
+    const score = (result.data as Record<string, unknown>)?.["confidence_score"] as number;
+    if (score >= 0.7) {
+      expect(result.accept).toBe(true);
+      expect(result.new_status).toBe("COMPLETED");
+    } else {
+      expect(result.accept).toBe(false);
+      expect(result.new_status).toBe("NEEDS_REWORK");
+    }
+  });
+
+  it("rejects when score < threshold — returns NEEDS_REWORK with feedback", async () => {
+    // threshold=0.99 forces rejection (no task can score that high with heuristics)
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0.99 });
+    const result = await overlay.postTask(ctx, {
+      status: "COMPLETED",
+      outputs: [],
+      handover_state: {},
+    });
+    expect(result.accept).toBe(false);
+    expect(result.new_status).toBe("NEEDS_REWORK");
+    expect(typeof result.feedback).toBe("string");
+    expect(result.feedback).toContain("below threshold");
+  });
+
+  it("threshold=0 always accepts", async () => {
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0 });
+    const result = await overlay.postTask(ctx, {
+      status: "COMPLETED",
+      outputs: [],
       handover_state: {},
     });
     expect(result.accept).toBe(true);

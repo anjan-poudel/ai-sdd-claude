@@ -16,11 +16,8 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
   },
   engine: {
     max_concurrent_tasks: 3,
-    rate_limit_requests_per_minute: 20,
     cost_budget_per_run_usd: 10.00,
     cost_enforcement: "pause",
-    context_warning_threshold_pct: 80,
-    context_hil_threshold_pct: 95,
   },
   overlays: {
     hil: {
@@ -42,9 +39,6 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
   },
   observability: {
     log_level: "INFO",
-  },
-  governance: {
-    requirements_lock: "warn",
   },
   standards: {
     // undefined paths = auto-discover *.md under standards/ in project root

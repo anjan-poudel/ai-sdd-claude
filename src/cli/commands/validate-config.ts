@@ -29,18 +29,38 @@ export function registerValidateConfigCommand(program: Command): void {
         hasErrors = true;
       }
 
-      // 2. Workflow
-      const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
-      if (existsSync(workflowPath)) {
-        try {
-          WorkflowLoader.loadFile(workflowPath);
-          console.log("  ✓ workflow.yaml");
-        } catch (err) {
-          console.error(`  ✗ workflow.yaml: ${err instanceof Error ? err.message : String(err)}`);
-          hasErrors = true;
+      // 2. Workflow — same search order as `run` (first found wins)
+      {
+        const config = loadProjectConfig(projectPath);
+        const configWorkflowName = config.workflow as string | undefined;
+        const candidatePaths: Array<[string, string]> = [
+          [resolve(projectPath, "specs", "workflow.yaml"), "specs/workflow.yaml"],
+          [resolve(projectPath, ".ai-sdd", "workflow.yaml"), ".ai-sdd/workflow.yaml"],
+          ...(configWorkflowName
+            ? [[
+                resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`),
+                `.ai-sdd/workflows/${configWorkflowName}.yaml`,
+              ] as [string, string]]
+            : []),
+          [resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"), ".ai-sdd/workflows/default-sdd.yaml"],
+        ];
+        let foundWorkflow = false;
+        for (const [wfPath, label] of candidatePaths) {
+          if (existsSync(wfPath)) {
+            try {
+              WorkflowLoader.loadFile(wfPath);
+              console.log(`  ✓ workflow (${label})`);
+            } catch (err) {
+              console.error(`  ✗ workflow (${label}): ${err instanceof Error ? err.message : String(err)}`);
+              hasErrors = true;
+            }
+            foundWorkflow = true;
+            break;
+          }
         }
-      } else {
-        console.log("  — workflow.yaml (not found, using default)");
+        if (!foundWorkflow) {
+          console.log("  — workflow (not found in any standard path, using bundled default)");
+        }
       }
 
       // 3. Agent definitions

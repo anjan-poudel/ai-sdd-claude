@@ -35,9 +35,18 @@ export class McpSchemaError extends Error {
   }
 }
 
+type ToolDescriptor = {
+  name: string;
+  inputSchema?: {
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+};
+
 type SdkClient = {
   connect(transport: unknown): Promise<void>;
   callTool(params: { name: string; arguments: Record<string, unknown> }): Promise<unknown>;
+  listTools(): Promise<{ tools: ToolDescriptor[] }>;
   close(): Promise<void>;
 };
 
@@ -144,4 +153,90 @@ export class McpClientWrapper {
     const raw = await Promise.race([callPromise, timeoutPromise]);
     return unwrapSdkResponse(raw);
   }
+
+  async listTools(): Promise<ToolDescriptor[]> {
+    if (!this._connected || !this._client) {
+      throw new McpNotConnectedError(this.backendId);
+    }
+
+    const timeout = this.config.timeout_ms ?? 5000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new McpTimeoutError("tools/list", timeout)), timeout)
+    );
+
+    const result = await Promise.race([
+      (this._client as SdkClient).listTools(),
+      timeoutPromise,
+    ]);
+    return result.tools ?? [];
+  }
+}
+
+// ─── Overlay protocol auto-discovery ─────────────────────────────────────────
+
+/**
+ * Fingerprint for identifying overlay-protocol-compatible tools.
+ * A tool matches if its inputSchema.required includes all three fields.
+ */
+const OVERLAY_FINGERPRINT = ["protocol_version", "overlay_id", "hook"] as const;
+
+function isOverlayTool(tool: ToolDescriptor): boolean {
+  const required = tool.inputSchema?.required ?? [];
+  return OVERLAY_FINGERPRINT.every((f) => required.includes(f));
+}
+
+/**
+ * Connect to a single MCP backend, list its tools, and return the name of the
+ * first tool matching the overlay protocol fingerprint — or undefined if none match.
+ * Errors are swallowed and reported as undefined (non-fatal discovery failure).
+ */
+export async function discoverOverlayTool(
+  config: import("../../config/remote-overlay-schema.ts").ResolvedBackendConfig & { runtime: "mcp" },
+): Promise<string | undefined> {
+  const client = new McpClientWrapper(config);
+  try {
+    await client.connect();
+    const tools = await client.listTools();
+    const match = tools.find(isOverlayTool);
+    return match?.name;
+  } catch {
+    return undefined;
+  } finally {
+    await client.disconnect().catch(() => {/* best-effort */});
+  }
+}
+
+/**
+ * Resolve tool names for all MCP backends that have no explicit `tool:` set.
+ * Returns a Map<backendId, resolvedToolName> for backends where discovery succeeded.
+ * Backends with an explicit `tool:` are included as-is (no network call).
+ */
+export async function resolveBackendTools(
+  remoteConfig: import("../../config/remote-overlay-schema.ts").ResolvedOverlayConfig,
+): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>();
+
+  for (const [backendId, backend] of Object.entries(remoteConfig.overlay_backends ?? {})) {
+    if (backend.runtime !== "mcp") continue;
+
+    if (backend.tool) {
+      resolved.set(backendId, backend.tool);
+      continue;
+    }
+
+    const toolName = await discoverOverlayTool(
+      backend as import("../../config/remote-overlay-schema.ts").ResolvedBackendConfig & { runtime: "mcp" },
+    );
+    if (toolName) {
+      console.log(`[ai-sdd] Auto-discovered overlay tool '${toolName}' for backend '${backendId}'`);
+      resolved.set(backendId, toolName);
+    } else {
+      console.warn(
+        `[ai-sdd] Backend '${backendId}': no overlay-compatible tool found via tools/list. ` +
+        `Set tool: explicitly in overlay_backends config to suppress discovery.`,
+      );
+    }
+  }
+
+  return resolved;
 }

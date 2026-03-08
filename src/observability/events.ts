@@ -249,6 +249,42 @@ export const OverlayRemoteFallbackEvent = BaseEventSchema.extend({
   }).passthrough(),
 });
 
+export const TaskHilResumingEvent = BaseEventSchema.extend({
+  type: z.literal("task.hil_resuming"),
+  data: z.object({
+    task_id: z.string(),
+    hil_id: z.string(),
+  }).passthrough(),
+});
+
+export const TaskHilPendingEvent = BaseEventSchema.extend({
+  type: z.literal("task.hil_pending"),
+  data: z.object({
+    task_id: z.string(),
+    hil_id: z.string().optional(),
+    feedback: z.string().optional(),
+  }).passthrough(),
+});
+
+export const HilNotifyFailedEvent = BaseEventSchema.extend({
+  type: z.literal("hil.notify_failed"),
+  data: z.object({
+    hil_id: z.string(),
+    task_id: z.string(),
+    command: z.string().optional(),
+    exit_code: z.number().optional(),
+    error: z.string().optional(),
+  }).passthrough(),
+});
+
+export const PairedNotImplementedEvent = BaseEventSchema.extend({
+  type: z.literal("paired.not_implemented"),
+  data: z.object({
+    task_id: z.string(),
+    message: z.string(),
+  }).passthrough(),
+});
+
 export type AnyEvent = {
   type: string;
   run_id: string;

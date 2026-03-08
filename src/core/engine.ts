@@ -17,6 +17,7 @@ import { CostTracker } from "../observability/cost-tracker.ts";
 import type { OverlayProvider, OverlayDecision, OverlayVerdict, OverlayContext } from "../types/overlay-protocol.ts";
 import { runPreProviderChain, runPostProviderChain } from "../overlays/provider-chain.ts";
 import type { LocalOverlayProvider } from "../overlays/local-overlay-provider.ts";
+import { validateAdapterOutputs } from "../security/output-validator.ts";
 
 export interface EngineConfig {
   max_concurrent_tasks?: number;
@@ -460,8 +461,41 @@ export class Engine {
       if (postResult === "FAILED") return "FAILED";
     }
 
+    // ── Output contract validation (adapter-independent safety check) ───────
+    // Validates path allowlist and secret detection regardless of adapter type.
+    // This ensures OpenAIAdapter (direct file writes) follows the same safety
+    // model as ClaudeCodeAdapter (which goes through complete-task).
+    const adapterOutputs = result.outputs ?? [];
+    const declaredOutputs = taskDef.outputs ?? [];
+    if (adapterOutputs.length > 0) {
+      const validation = validateAdapterOutputs(adapterOutputs, declaredOutputs, projectPath);
+      if (!validation.valid) {
+        const secretError = validation.errors.find((e) => e.kind === "secret_detected");
+        const otherErrors = validation.errors.filter((e) => e.kind !== "secret_detected");
+        if (secretError) {
+          // Secret in output → NEEDS_REWORK (same as complete-task behaviour)
+          this.stateManager.transition(taskId, "NEEDS_REWORK", {
+            rework_feedback: secretError.message,
+          });
+          this.emitter.emit("task.rework", {
+            task_id: taskId,
+            iteration,
+            feedback: secretError.message,
+          });
+          this.stateManager.transition(taskId, "RUNNING");
+          return "NEEDS_REWORK";
+        }
+        if (otherErrors.length > 0) {
+          const msg = otherErrors.map((e) => e.message).join("; ");
+          this.stateManager.transition(taskId, "FAILED", { error: msg });
+          this.emitter.emit("task.failed", { task_id: taskId, error: msg });
+          return "FAILED";
+        }
+      }
+    }
+
     // ── COMPLETED ───────────────────────────────────────────────────────────
-    const outputs: TaskOutput[] = result.outputs ?? [];
+    const outputs: TaskOutput[] = adapterOutputs;
     this.stateManager.transition(taskId, "COMPLETED", { outputs });
 
     if (result.handover_state) {

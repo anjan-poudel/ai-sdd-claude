@@ -26,6 +26,8 @@ export interface RegistryInput {
     confidence?: BaseOverlay;
   };
   remoteConfig?: ResolvedOverlayConfig;
+  /** backendId → resolved tool name from auto-discovery. Populated by resolveBackendTools(). */
+  resolvedBackendTools?: Map<string, string>;
   emitter?: ObservabilityEmitter; // required only when remoteConfig has remote_overlays
 }
 
@@ -56,11 +58,14 @@ export function buildProviderChain(input: RegistryInput): OverlayProvider[] {
             `remote_overlays['${name}'] requires an ObservabilityEmitter but none was provided.`
           );
         }
+        const resolvedTool = input.resolvedBackendTools?.get(cfg.backend);
         chain.push(new McpOverlayProvider(
           name,
           cfg,
           backend as ResolvedBackendConfig & { runtime: "mcp" },
           input.emitter,
+          undefined,
+          resolvedTool,
         ));
       } else {
         throw new RegistryError(

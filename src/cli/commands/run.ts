@@ -18,6 +18,7 @@ import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
 import { buildProviderChain } from "../../overlays/registry.ts";
+import { resolveBackendTools } from "../../overlays/mcp/mcp-client.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
 import { loadProjectConfig, loadRemoteOverlayConfig } from "../config-loader.ts";
 
@@ -160,7 +161,52 @@ export function registerRunCommand(program: Command): void {
         config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/",
       );
       const outputsDir = resolve(projectPath, ".ai-sdd", "outputs");
-      const remoteConfig = loadRemoteOverlayConfig(projectPath);
+      let remoteConfig = loadRemoteOverlayConfig(projectPath);
+
+      // Probe remote overlay backend availability and apply env-var disables.
+      // AI_SDD_DISABLE_REMOTE_OVERLAYS=true  → skip all remote overlays
+      // AI_SDD_DISABLE_OVERLAY_<NAME>=true   → skip a specific overlay (NAME uppercased)
+      if (remoteConfig?.remote_overlays) {
+        const disableAll = process.env.AI_SDD_DISABLE_REMOTE_OVERLAYS === "true";
+        const prunedOverlays: typeof remoteConfig.remote_overlays = {};
+        for (const [name, cfg] of Object.entries(remoteConfig.remote_overlays)) {
+          const disableEnvKey = `AI_SDD_DISABLE_OVERLAY_${name.toUpperCase().replace(/-/g, "_")}`;
+          if (disableAll || process.env[disableEnvKey] === "true") {
+            console.warn(`[ai-sdd] Remote overlay '${name}' disabled via environment variable.`);
+            continue;
+          }
+          if (!cfg.enabled) {
+            prunedOverlays[name] = cfg;
+            continue;
+          }
+          // Probe backend command availability.
+          // Checks all absolute/relative path args in the command array (e.g. node script.js).
+          const backendName = cfg.backend;
+          const backend = remoteConfig.overlay_backends?.[backendName];
+          if (backend) {
+            const missingPath = backend.command.find(
+              (arg) => (arg.startsWith("/") || arg.startsWith(".")) && !existsSync(arg),
+            );
+            if (missingPath !== undefined) {
+              console.warn(
+                `[ai-sdd] Remote overlay '${name}' unavailable: path not found: ${missingPath}. ` +
+                `Skipping. Set enabled: false in ai-sdd.yaml to suppress this warning.`,
+              );
+              continue;
+            }
+          }
+          prunedOverlays[name] = cfg;
+        }
+        remoteConfig = { ...remoteConfig, remote_overlays: prunedOverlays };
+      }
+
+      // Auto-discover overlay tool names for backends that have no explicit tool: set.
+      // Connects to each backend, calls tools/list, and matches the overlay fingerprint.
+      let resolvedTools: Map<string, string> | undefined;
+      if (remoteConfig) {
+        resolvedTools = await resolveBackendTools(remoteConfig);
+      }
+
       const hilNotify = config.overlays?.hil?.notify;
       const providerChain = buildProviderChain({
         localOverlays: {
@@ -179,6 +225,7 @@ export function registerRunCommand(program: Command): void {
           confidence: new ConfidenceOverlay(emitter),
         },
         ...(remoteConfig !== undefined && { remoteConfig }),
+        ...(resolvedTools !== undefined && { resolvedBackendTools: resolvedTools }),
         emitter,
       });
 

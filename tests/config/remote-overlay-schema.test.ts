@@ -126,13 +126,14 @@ describe("parseRemoteOverlayConfig: default values", () => {
 });
 
 describe("parseRemoteOverlayConfig: validation errors", () => {
-  it("2. MCP backend without tool field → ZodError with message naming 'tool' and 'mcp'", () => {
+  it("2. MCP backend without tool field → valid (auto-discovery handles it at runtime)", () => {
+    // tool: is now optional — ai-sdd discovers the overlay tool via tools/list fingerprint.
     const raw = {
       overlay_backends: {
         "no-tool-backend": {
           runtime: "mcp",
           command: ["server"],
-          // missing: tool
+          // tool intentionally absent — auto-discovery will resolve it
         },
       },
     };
@@ -142,27 +143,17 @@ describe("parseRemoteOverlayConfig: validation errors", () => {
     } catch (err) {
       caught = err;
     }
-    expect(caught).toBeDefined();
-    const msg = String(caught);
-    // CLAUDE.md §5: error message text is a contract
-    expect(msg.toLowerCase()).toContain("tool");
-    expect(msg.toLowerCase()).toContain("mcp");
+    // No error expected — MCP backend without tool: is valid
+    expect(caught).toBeUndefined();
   });
 
-  it("14. MCP backend without tool: error message text includes 'tool' and 'mcp' exactly", () => {
+  it("14. MCP backend without tool: parses successfully — tool is optional since auto-discovery", () => {
     const result = OverlayBackendConfigSchema.safeParse({
       runtime: "mcp",
       command: ["server"],
-      // no tool
+      // no tool — valid; resolved at runtime via tools/list fingerprint
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const errorMessages = result.error.errors.map((e) => e.message);
-      const allMessages = errorMessages.join(" ");
-      // The refine message must contain 'tool' and 'mcp'
-      expect(allMessages.toLowerCase()).toContain("tool");
-      expect(allMessages.toLowerCase()).toContain("mcp");
-    }
+    expect(result.success).toBe(true);
   });
 
   it("3. hooks: [] (empty array) → ZodError with message naming hooks and minimum constraint", () => {
@@ -311,11 +302,11 @@ remote_overlays:
 
 describe("validate-config CLI: remote overlay config integration", () => {
   it("12. invalid remote overlay config → exits non-zero; output includes error details", async () => {
-    // Set up a project with invalid remote overlay config (MCP backend without tool)
+    // Set up a project with invalid remote overlay config (unknown runtime value)
     setupProject(`version: '1'
 overlay_backends:
   bad-backend:
-    runtime: mcp
+    runtime: unknown_runtime
     command: [server]
 `);
 
@@ -393,20 +384,20 @@ remote_overlays:
   });
 });
 
-// ─── Governance config (ProjectConfig integration) ────────────────────────────
+// ─── Governance config (RemoteOverlayConfig — live path) ─────────────────────
+// governance.requirements_lock lives in the remote overlay config schema, not in
+// ProjectConfig. The separate loadRemoteOverlayConfig() path handles it.
 
-describe("governance config in ProjectConfig", () => {
-  it("DEFAULT_CONFIG has governance.requirements_lock === 'warn'", async () => {
-    const { DEFAULT_CONFIG } = await import("../../src/config/defaults.ts");
-    expect(DEFAULT_CONFIG.governance).toBeDefined();
-    expect(DEFAULT_CONFIG.governance.requirements_lock).toBe("warn");
+describe("governance config in RemoteOverlayConfig", () => {
+  it("governance field (off) is accepted by parseRemoteOverlayConfig", () => {
+    const result = parseRemoteOverlayConfig({ governance: { requirements_lock: "off" } });
+    expect(result?.governance?.requirements_lock).toBe("off");
   });
 
-  it("governance field is optional in ProjectConfig — omitting it does not break loadProjectConfig", () => {
+  it("loadProjectConfig does not break when governance key absent from ai-sdd.yaml", () => {
     setupProject("version: '1'\n");
     const { loadProjectConfig } = require("../../src/cli/config-loader.ts");
-    const config = loadProjectConfig(TEST_PROJECT_DIR);
-    // Should not throw; governance should have the default
-    expect(config.governance?.requirements_lock).toBe("warn");
+    // Should not throw
+    expect(() => loadProjectConfig(TEST_PROJECT_DIR)).not.toThrow();
   });
 });

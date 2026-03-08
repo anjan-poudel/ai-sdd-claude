@@ -7,18 +7,15 @@ import { z } from "zod";
 export const OverlayBackendConfigSchema = z.object({
   runtime: z.enum(["cli", "mcp"]),
   command: z.array(z.string()).min(1),
-  tool: z.string().optional(),                           // required when runtime is "mcp"
+  // tool: optional — if absent, ai-sdd auto-discovers it at startup by calling
+  // tools/list on the MCP server and matching the overlay protocol fingerprint
+  // (inputSchema.required includes protocol_version, overlay_id, hook).
+  tool: z.string().optional(),
   transport: z.enum(["stdio"]).default("stdio"),
   timeout_ms: z.number().int().positive().default(5000),
   failure_policy: z.enum(["skip", "warn", "fail_closed"]).default("warn"),
   env: z.record(z.string()).optional(),
-}).refine(
-  (data) => data.runtime !== "mcp" || data.tool !== undefined,
-  {
-    message: "overlay_backends: 'tool' is required when runtime is 'mcp'",
-    path: ["tool"],
-  },
-);
+});
 
 export const RemoteOverlayConfigSchema = z.object({
   backend: z.string(),

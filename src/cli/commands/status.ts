@@ -82,9 +82,37 @@ export function registerStatusCommand(program: Command): void {
 
       if (options.json) {
         if (options.next) {
-          // --next --json: return ready tasks
+          // --next --json: return tasks that are PENDING AND have all dependencies COMPLETED.
+          // Load the workflow to build the dependency map.
+          const wfSearchPaths = [
+            resolve(projectPath, "specs", "workflow.yaml"),
+            resolve(projectPath, ".ai-sdd", "workflow.yaml"),
+            ...(options.workflow
+              ? [resolve(projectPath, ".ai-sdd", "workflows", `${options.workflow as string}.yaml`)]
+              : []),
+            resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
+          ];
+          let dependsOn: Record<string, string[]> = {};
+          for (const p of wfSearchPaths) {
+            if (existsSync(p)) {
+              try {
+                const wf = WorkflowLoader.loadFile(p);
+                for (const [id, task] of wf.tasks) {
+                  dependsOn[id] = task.depends_on ?? [];
+                }
+                break;
+              } catch {
+                // Malformed — try next path
+              }
+            }
+          }
+
           const ready = Object.entries(state.tasks)
-            .filter(([, s]) => s.status === "PENDING")
+            .filter(([id, s]) => {
+              if (s.status !== "PENDING") return false;
+              const deps = dependsOn[id] ?? [];
+              return deps.every((dep) => state.tasks[dep]?.status === "COMPLETED");
+            })
             .map(([id, s]) => ({ id, ...s }));
           console.log(JSON.stringify({ ready_tasks: ready }, null, 2));
         } else {

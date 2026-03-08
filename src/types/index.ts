@@ -228,11 +228,8 @@ export interface ProjectConfig {
   };
   engine?: {
     max_concurrent_tasks?: number;
-    rate_limit_requests_per_minute?: number;
     cost_budget_per_run_usd?: number;
     cost_enforcement?: CostEnforcement;
-    context_warning_threshold_pct?: number;
-    context_hil_threshold_pct?: number;
   };
   overlays?: {
     hil?: {
@@ -254,9 +251,6 @@ export interface ProjectConfig {
   };
   observability?: {
     log_level?: ObservabilityLogLevel;
-  };
-  governance?: {
-    requirements_lock?: "off" | "warn" | "enforce";
   };
   standards?: {
     /**

@@ -17,30 +17,24 @@ export function registerMigrateCommand(program: Command): void {
       const to = options.to as string | undefined;
       const dryRun = options.dryRun as boolean;
 
-      console.log("ai-sdd migrate — Phase 5 feature");
-      console.log();
-      console.log("The migration tool is not yet implemented.");
-      console.log("It will be available in Phase 5 of the ai-sdd development roadmap.");
-      console.log();
-
-      if (dryRun) {
-        console.log("Dry run mode: no changes would be applied.");
-      }
+      console.error("ai-sdd migrate: not yet implemented.");
+      console.error();
 
       if (from && to) {
-        console.log(`Requested migration: v${from} → v${to}`);
+        console.error(`Requested: v${from} → v${to}`);
       } else if (from) {
-        console.log(`Requested migration: v${from} → current`);
+        console.error(`Requested: v${from} → current`);
+      }
+      if (dryRun) {
+        console.error("(dry-run mode — no changes would be applied, but migration is not yet built)");
       }
 
-      console.log();
-      console.log("To work around schema version mismatches:");
-      console.log("  1. Back up your .ai-sdd/state/ directory");
-      console.log("  2. Manually update schema_version fields to '1'");
-      console.log("  3. Re-run: ai-sdd validate-config");
-      console.log();
-      console.log("Track Phase 5 progress: https://github.com/your-org/ai-sdd");
+      console.error();
+      console.error("Manual recovery for schema version mismatches:");
+      console.error("  1. Back up your .ai-sdd/state/ directory");
+      console.error("  2. Open each .json file under .ai-sdd/state/ and set schema_version to '1'");
+      console.error("  3. Re-run: ai-sdd validate-config");
 
-      process.exit(0);
+      process.exit(1);
     });
 }

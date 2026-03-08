@@ -81,6 +81,7 @@ export class McpOverlayProvider implements OverlayProvider {
     private readonly backendConfig: ResolvedBackendConfig & { runtime: "mcp" },
     private readonly emitter: ObservabilityEmitter,
     clientFactory?: (config: ResolvedBackendConfig & { runtime: "mcp" }) => McpClientWrapper,
+    private readonly resolvedToolName?: string,
   ) {
     this._clientFactory = clientFactory ?? ((cfg) => new McpClientWrapper(cfg));
     this.id = overlayName;
@@ -146,7 +147,14 @@ export class McpOverlayProvider implements OverlayProvider {
         task_id: ctx.task_id,
       });
 
-      raw = await client.callTool(this.backendConfig.tool!, input);
+      const toolName = this.resolvedToolName ?? this.backendConfig.tool;
+      if (!toolName) {
+        throw new Error(
+          `McpOverlayProvider '${this.id}': no tool name configured and auto-discovery did not resolve one. ` +
+          `Set tool: in overlay_backends config or ensure the backend exposes a tool with the overlay protocol fingerprint.`,
+        );
+      }
+      raw = await client.callTool(toolName, input);
 
     } catch (err) {
       // Tier 1: Transport error
