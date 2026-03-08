@@ -46,6 +46,12 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
   governance: {
     requirements_lock: "warn",
   },
+  standards: {
+    // undefined paths = auto-discover *.md under standards/ in project root
+    // [] = disabled
+    paths: undefined,
+    strict: false,
+  },
 };
 
 /**

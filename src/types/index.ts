@@ -258,6 +258,17 @@ export interface ProjectConfig {
   governance?: {
     requirements_lock?: "off" | "warn" | "enforce";
   };
+  standards?: {
+    /**
+     * Paths to coding standards files (relative to project root or absolute).
+     * Merged into the constitution so every agent receives them.
+     * Defaults to all *.md files found under standards/ in the project root.
+     * Set to [] to disable standards enforcement.
+     */
+    paths?: string[];
+    /** When true, a missing standards file is a hard error. Default false. */
+    strict?: boolean;
+  };
 }
 
 // ─── Artifact Contract Types ──────────────────────────────────────────────────

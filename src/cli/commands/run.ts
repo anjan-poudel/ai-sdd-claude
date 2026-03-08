@@ -31,6 +31,10 @@ export function registerRunCommand(program: Command): void {
     .option("--step", "Pause after each task group")
     .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
     .option("--feature <name>", "Feature name (loads specs/<name>/workflow.yaml)")
+    .option(
+      "--standards <paths>",
+      "Comma-separated paths to coding standards files (relative to project, or 'none' to disable)",
+    )
     .option("--project <path>", "Project directory", process.cwd())
     .action(async (options) => {
       const projectPath = resolve(options.project as string);
@@ -116,10 +120,20 @@ export function registerRunCommand(program: Command): void {
         stateManager.load();
       }
 
+      // Resolve standards paths: --standards CLI flag > config.standards.paths > auto-discover
+      const standardsArg = options.standards as string | undefined;
+      const standardsPaths: string[] | undefined = standardsArg === "none"
+        ? []                                                   // explicit disable
+        : standardsArg !== undefined
+          ? standardsArg.split(",").map((p) => p.trim()).filter(Boolean) // CLI paths
+          : config.standards?.paths;                           // config (undefined = auto-discover)
+
       // Constitution
       const constitutionResolver = new ConstitutionResolver({
         project_path: projectPath,
         strict_parse: config.constitution?.strict_parse ?? true,
+        ...(standardsPaths !== undefined && { standards_paths: standardsPaths }),
+        standards_strict: config.standards?.strict ?? false,
       });
 
       // Manifest writer

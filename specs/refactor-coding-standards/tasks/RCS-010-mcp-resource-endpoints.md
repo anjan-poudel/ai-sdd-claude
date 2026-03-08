@@ -3,7 +3,7 @@
 **Phase:** 3
 **Status:** PENDING
 **Size:** S (1 day)
-**Depends on:** RCS-009
+**Depends on:** RCS-001
 **Target repo:** /Users/anjan/workspace/projects/coding-standards
 
 ---

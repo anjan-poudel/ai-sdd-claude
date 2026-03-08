@@ -89,6 +89,18 @@ MCP server delegates to this command; it never writes files directly.
 - Feature artifacts: `specs/<feature>/<task-id>.md` (e.g. `specs/my-feature/design-l1.md`)
 - Task breakdown: `specs/<task-id>/plan.md` + `specs/<task-id>/tasks/` (hierarchical, Jira-style TG-NN/T-NNN)
 - Workflow definitions: `specs/workflow.yaml` (greenfield) or `specs/<feature>/workflow.yaml` (feature)
+- Requirements lock: `specs/<task-id>.lock.yaml` — immutable snapshot produced after BA HIL sign-off; consumed by downstream tasks for drift detection
+
+**Artifact contracts** (`data/artifacts/schema.yaml`) — registered types:
+- `requirements_doc` — BA index (`## Summary`, `## Contents`)
+- `requirements_lock` — immutable YAML snapshot (fields: `spec_hash`, `locked_at`, `requirements`)
+- `spec_hash` — content fingerprint (fields: `hash`, `source_paths`)
+- `architecture_l1` — L1 arch doc (`## Overview`, `## Architecture`, `## Components`)
+- `component_design_l2` — L2 component design
+- `task_breakdown_l3` — LE task plan (`## Summary`, `## Contents`)
+- `implementation` — developer output (field: `description` required)
+- `review_report` — review outcome (`## Summary`, `## Decision`; field: `decision` required)
+- `spec_gate_report` — pre-implementation gate (`## Evidence Checklist`, `## HIL Sign-Off`)
 
 **Workflow lookup order** (first found wins, `run` and `complete-task`):
 1. `--workflow <name>` → `.ai-sdd/workflows/<name>.yaml`
@@ -97,6 +109,11 @@ MCP server delegates to this command; it never writes files directly.
 4. `.ai-sdd/workflow.yaml` (backward compat)
 5. `.ai-sdd/workflows/default-sdd.yaml`
 6. Bundled framework default
+
+**Coding standards enforcement** — standards docs are merged into the constitution so every agent receives them. Auto-discovered from `standards/**/*.md` in the project root (sorted alphabetically). Override via:
+- `--standards <paths>` CLI flag: comma-separated paths relative to project root, or `none` to disable
+- `standards.paths` in `ai-sdd.yaml`: explicit list (empty `[]` disables)
+- `standards.strict: true`: makes missing standards files a hard error (default: warn)
 
 **Expression DSL** — all `exit_conditions` and gate expressions go through `src/dsl/parser.ts` + `evaluator.ts`. No `eval()` or `exec()` anywhere in the codebase.
 
@@ -118,7 +135,7 @@ Every state file carries `schema_version: "1"`. Version mismatch at startup → 
 ## CLI Commands Reference
 
 ```
-ai-sdd run [--resume] [--task <id>] [--dry-run] [--step] [--workflow <name>] [--feature <name>]
+ai-sdd run [--resume] [--task <id>] [--dry-run] [--step] [--workflow <name>] [--feature <name>] [--standards <paths|none>]
 ai-sdd status [--json] [--next --json] [--metrics] [--workflow <name>]
 ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp> [--feature <name>]
 ai-sdd validate-config

@@ -1,8 +1,8 @@
-# RCS-009: Add High-Level Query Tools to MCP Server
+# RCS-009: Redirect Query Tools to RMS + Add DEPRECATION.md
 
 **Phase:** 3
 **Status:** PENDING
-**Size:** M (2 days)
+**Size:** XS (0.5 days) — reduced from M; doc-only change in CS
 **Depends on:** RCS-001
 **Target repo:** /Users/anjan/workspace/projects/coding-standards
 
@@ -10,63 +10,61 @@
 
 ## What
 
-The MCP server currently exposes 6 low-level graph tools (`graph_init`,
-`graph_add_node`, `graph_add_edge`, `graph_validate`, `graph_query`,
-`graph_export`). Add 6 high-level convenience tools that wrap the QueryEngine
-and ValidationEngine for direct use by ai-sdd agents.
+The original plan proposed adding 6 high-level query tools (validate_lock,
+find_gaps, impact_analysis, coverage_report, dependency_chain, available_tasks)
+to the CS MCP server. **This work is now redirected to repeatability-mcp-server
+(RMS)**, which already has equivalent — and more powerful — implementations.
 
-These tools operate on an existing `requirements.lock.yaml` file — they don't
-require a graph session to be initialized first. This makes them suitable for
-agents that want quick analysis without building graphs manually.
+See `docs/ecosystem-proposal-opus.md` §"What RCS-009 Becomes" for the full
+mapping of proposed CS tools to existing RMS equivalents.
 
-## New Tools
+## What CS Does Instead
 
-| Tool | Wraps | Input | Output |
-|------|-------|-------|--------|
-| `validate_lock` | ValidationEngine.validate() | `{ lockFile: string, rules?: string[] }` | `{ success, summary, violations[] }` |
-| `find_gaps` | QueryEngine.findAllGaps() | `{ lockFile: string }` | `{ reqsWithoutTasks[], reqsWithoutTests[], tasksWithoutACs[], orphans[] }` |
-| `impact_analysis` | QueryEngine.getImpactChain() | `{ lockFile: string, reqId: string }` | `{ affectedTasks[], affectedTests[], affectedContracts[] }` |
-| `coverage_report` | QueryEngine.getRequirementCoverage() | `{ lockFile: string, reqId?: string }` | `{ requirements: [{ id, tasks[], tests[], covered }] }` |
-| `dependency_chain` | QueryEngine.getDependencyChain() | `{ lockFile: string, taskId: string }` | `{ chain: string[], depth: number }` |
-| `available_tasks` | QueryEngine.getAvailableTasks() | `{ lockFile: string }` | `{ tasks: [{ id, description, deps_met }] }` |
+1. **Add `tools/mcp-server/DEPRECATION.md`** explaining:
+   - CS graph tools (6 MCP tools) are functional but frozen
+   - New graph/query/validation features go to RMS
+   - Table mapping CS tool names to RMS equivalents
+   - Timeline: CS tools remain working indefinitely; deprecation is a
+     recommendation, not a removal
 
-## Implementation Notes
+2. **Update `tools/mcp-server/README.md`** to:
+   - Add "For advanced queries, use repeatability-mcp-server" section
+   - Link to RMS repo and its MCP tool documentation
+   - Note that CS's 9 validators are a subset of RMS's 20+ rules
 
-- Each tool reads `lockFile` from disk, builds graph via `GraphBuilder.fromYAML()`,
-  runs the query, and returns structured JSON
-- Graph is built per-request (no session state needed)
-- All tools are **read-only** — they never modify files
-- Error handling: if lockFile doesn't exist or is malformed, return
-  `{ error: "...", success: false }`
+3. **Update `tools/query-engine/README.md`** similarly
+
+## Why Not Both?
+
+Maintaining graph tools in two places creates confusion about which project
+owns the graph model, validation rules, and query patterns. The ecosystem
+proposal assigns these unambiguously to RMS. CS's role is standards library:
+prompts, schemas, language rules, and CI scripts.
 
 ## Acceptance Criteria
 
 ```gherkin
-Scenario: validate_lock returns violations
-  Given a requirements.lock.yaml with a REQ that has no implementing TASK
-  When validate_lock is called
-  Then success is false
-  And violations contains "coverage-req-tasks" rule violation
+Scenario: DEPRECATION.md exists and is accurate
+  Given the tools/mcp-server/ directory
+  When DEPRECATION.md is read
+  Then it contains a mapping table of CS tools → RMS equivalents
+  And it states that CS tools remain functional
+  And it states that new features go to RMS
 
-Scenario: find_gaps reports missing coverage
-  Given a requirements.lock.yaml with REQ-001 but no TASK implementing it
-  When find_gaps is called
-  Then reqsWithoutTasks contains "REQ-001"
+Scenario: MCP server README references RMS
+  Given the tools/mcp-server/README.md
+  When the README is read
+  Then it contains a section pointing to RMS for advanced queries
+  And it links to the RMS repository
 
-Scenario: impact_analysis traces downstream effects
-  Given a requirements.lock.yaml with REQ-001 → TASK-001 → TESTSPEC-001
-  When impact_analysis is called with reqId "REQ-001"
-  Then affectedTasks contains "TASK-001"
-  And affectedTests contains "TESTSPEC-001"
-
-Scenario: available_tasks filters by dependency satisfaction
-  Given TASK-001 depends on TASK-002 (completed) and TASK-003 (pending)
-  When available_tasks is called
-  Then TASK-001 is NOT in the available list
+Scenario: Existing tools still work
+  Given the MCP server with no code changes
+  When npm test is run
+  Then all existing tests pass
 ```
 
-## Test Strategy
+## Out of Scope
 
-- Unit tests for each tool handler (mock GraphBuilder)
-- Integration test with a real `requirements.lock.yaml` fixture
-- Verify MCP server lists all 12 tools (6 existing + 6 new)
+- Adding convenience wrappers in RMS (tracked in RMS repo)
+- Removing CS graph tools (they remain frozen but functional)
+- Wiring RMS into ai-sdd (tracked in ecosystem proposal Phase 2)

@@ -22,6 +22,8 @@ describe("ArtifactRegistry", () => {
     expect(registry.has("requirements_doc")).toBe(true);
     expect(registry.has("review_report")).toBe(true);
     expect(registry.has("spec_gate_report")).toBe(true);
+    expect(registry.has("requirements_lock")).toBe(true);
+    expect(registry.has("spec_hash")).toBe(true);
   });
 
   it("getStrict throws for unknown contract", () => {
@@ -76,6 +78,53 @@ describe("ArtifactValidator", () => {
     const validator = new ArtifactValidator(registry);
     const result = validator.validate("anything", "unknown_contract", false);
     expect(result.valid).toBe(false);
+  });
+
+  it("validates a well-formed requirements_lock YAML artifact", () => {
+    const validator = new ArtifactValidator(registry);
+    const content = [
+      "spec_hash: sha256:abc123def456",
+      "locked_at: 2025-01-15T10:00:00Z",
+      "requirements:",
+      "  - id: FR-001",
+      "    hash: sha256:111aaa",
+      "  - id: NFR-001",
+      "    hash: sha256:222bbb",
+    ].join("\n");
+    const result = validator.validate(content, "requirements_lock");
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("fails requirements_lock validation when required fields are missing", () => {
+    const validator = new ArtifactValidator(registry);
+    const content = "locked_at: 2025-01-15T10:00:00Z\nrequirements:\n  - id: FR-001";
+    // Missing spec_hash
+    const result = validator.validate(content, "requirements_lock");
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("spec_hash"))).toBe(true);
+  });
+
+  it("validates a well-formed spec_hash artifact", () => {
+    const validator = new ArtifactValidator(registry);
+    const content = [
+      "hash: sha256:deadbeef1234",
+      "source_paths:",
+      "  - specs/define-requirements.md",
+      "  - specs/design-architecture.md",
+    ].join("\n");
+    const result = validator.validate(content, "spec_hash");
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("fails spec_hash validation when required fields are missing", () => {
+    const validator = new ArtifactValidator(registry);
+    const content = "hash: sha256:abc123";
+    // Missing source_paths
+    const result = validator.validate(content, "spec_hash");
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("source_paths"))).toBe(true);
   });
 });
 

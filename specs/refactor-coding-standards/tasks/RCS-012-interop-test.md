@@ -3,56 +3,63 @@
 **Phase:** 4
 **Status:** PENDING
 **Size:** S (1 day)
-**Depends on:** RCS-009
+**Depends on:** RCS-010
 **Target repo:** /Users/anjan/workspace/projects/coding-standards
 
 ---
 
 ## What
 
-Add an integration test that verifies the MCP server tools work correctly when
-called with typical ai-sdd agent request patterns. This validates that the
-coding-standards MCP server is a reliable dependency for ai-sdd workflows.
+Add an integration test that verifies the CS MCP server's resource endpoints and
+existing graph tools work correctly when called with typical ai-sdd agent request
+patterns. Also verify cross-project compatibility: CS graph tool results should be
+consistent with RMS results when given the same lock file input.
 
 ## Test Scenarios
 
-### 1. Full workflow simulation
+### 1. Resource endpoint verification
 
-Simulate the sequence of MCP calls an ai-sdd agent would make during a typical
-workflow:
+Verify all 4 MCP resource endpoints return correct content:
 
 ```
-1. validate_lock({ lockFile })          → check lock validity
-2. find_gaps({ lockFile })              → identify missing coverage
-3. coverage_report({ lockFile })        → get full coverage matrix
-4. impact_analysis({ lockFile, reqId }) → trace downstream effects
-5. available_tasks({ lockFile })        → find ready-to-work tasks
+1. resources/list                                        → 4 resources listed
+2. resources/read("coding-standards://schemas/requirements-input")    → YAML content
+3. resources/read("coding-standards://schemas/requirements-input-po") → YAML content
+4. resources/read("coding-standards://docs/requirements-lock")        → markdown content
+5. resources/read("coding-standards://docs/acceptance-criteria-format") → markdown content
+```
+
+### 2. Existing graph tools still work (regression)
+
+Simulate the sequence of MCP calls an ai-sdd agent would make:
+
+```
+1. graph_init()                     → session created
+2. graph_add_node(REQ-001)          → node added
+3. graph_add_node(TASK-001)         → node added
+4. graph_add_edge(implements)       → edge added
+5. graph_validate()                 → validation results
+6. graph_query(coverage)            → coverage data
+7. graph_export()                   → lock YAML
 ```
 
 Assert each call returns structured JSON with the expected shape.
 
-### 2. Error handling
+### 3. Error handling
 
 Test that MCP tools return clean error responses (not crashes) for:
 
-- Missing lock file path
+- Missing lock file path in graph_init
 - Malformed YAML content
-- Non-existent requirement ID in impact_analysis
-- Empty lock file
+- Non-existent node ID in graph_query
+- Empty graph validation
 
-### 3. Graph tool + query tool interop
+### 4. CS↔RMS compatibility check (informational)
 
-Test that the low-level graph tools (existing 6) and high-level query tools
-(new 6 from RCS-009) produce consistent results when given the same input:
-
-```
-graph_init → graph_add_node (REQ-001) → graph_add_node (TASK-001) →
-graph_add_edge (implements) → graph_query (coverage)
-  vs.
-coverage_report({ lockFile with REQ-001 → TASK-001 })
-```
-
-Both should report the same coverage status.
+If RMS is available as a dev dependency, verify that CS and RMS produce
+equivalent results for basic operations (same lock file → same coverage report).
+This test should be **skippable** if RMS is not installed — it's a compatibility
+check, not a hard requirement.
 
 ## Fixture
 
@@ -67,21 +74,21 @@ Create `tests/fixtures/ai-sdd-interop.lock.yaml` with:
 ## Acceptance Criteria
 
 ```gherkin
-Scenario: Full workflow simulation succeeds
+Scenario: Resource endpoints return valid content
+  When all 4 resource URIs are read
+  Then each returns content with the correct MIME type
+  And content is non-empty
+
+Scenario: Graph tools regression
   Given the interop fixture lock file
-  When all 5 query tools are called in sequence
+  When graph tools are called in the standard sequence
   Then each returns success with valid structured JSON
 
 Scenario: Error responses are clean
-  Given a missing lock file path
-  When validate_lock is called
-  Then it returns { error: "...", success: false }
-  And does not crash the MCP server
-
-Scenario: Graph and query tools agree
-  Given the same traceability data
-  When loaded via graph tools and via query tools
-  Then both report the same coverage status for REQ-001
+  Given malformed input
+  When graph tools are called
+  Then they return { error: "...", success: false }
+  And do not crash the MCP server
 ```
 
 ## Notes
@@ -89,3 +96,4 @@ Scenario: Graph and query tools agree
 - This test runs in the coding-standards repo's test suite
 - It does NOT require ai-sdd to be installed — it simulates the call patterns
 - Use the MCP server's in-process test harness (not stdio subprocess)
+- The CS↔RMS compatibility test is opt-in (skip if RMS not in node_modules)

@@ -44,6 +44,10 @@ const ProjectConfigSchema = z.object({
   constitution: z.object({
     strict_parse: z.boolean().optional(),
   }).optional(),
+  standards: z.object({
+    paths: z.array(z.string()).optional(),
+    strict: z.boolean().optional(),
+  }).optional(),
   observability: z.object({
     log_level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
   }).optional(),

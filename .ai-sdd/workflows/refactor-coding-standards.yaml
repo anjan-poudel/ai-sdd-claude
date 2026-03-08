@@ -2,10 +2,12 @@ version: "1"
 name: refactor-coding-standards
 description: |
   Post-merge cleanup of the coding-standards repo. Archives redundant files,
-  updates documentation to reference ai-sdd for enforcement, enhances the
-  MCP server with high-level query tools, and updates CI templates.
+  updates documentation to reference ai-sdd and RMS for the three-project
+  ecosystem, adds MCP resource endpoints for schemas, redirects graph/query
+  tool development to repeatability-mcp-server, and updates CI templates.
   Target repo: /Users/anjan/workspace/projects/coding-standards
   Specs: specs/refactor-coding-standards/
+  Ecosystem: docs/ecosystem-proposal-opus.md
 
 defaults:
   overlays:
@@ -106,23 +108,23 @@ tasks:
     overlays:
       hil: { enabled: false }
 
-  # ── Phase 3: MCP Server Enhancement ───────────────────────────────────────
+  # ── Phase 3: MCP Server: Resources + RMS Redirect ────────────────────────
 
   rcs-009:
     agent: dev
     depends_on: [rcs-001]
     description: |
-      Add 6 high-level query tools to the MCP server: validate_lock, find_gaps,
-      impact_analysis, coverage_report, dependency_chain, available_tasks.
-      Each reads lockFile from disk, builds graph via GraphBuilder.fromYAML(),
-      runs the query, returns structured JSON. All read-only, no session state.
+      Add DEPRECATION.md to tools/mcp-server/ and tools/query-engine/.
+      Explain that CS graph tools are frozen and new features go to RMS.
+      Include CS→RMS tool mapping table. Update READMEs to reference RMS.
+      NO new query tools in CS — those go to repeatability-mcp-server.
       Spec: specs/refactor-coding-standards/tasks/RCS-009-mcp-server-query-tools.md
     overlays:
-      policy_gate: { risk_tier: T1 }
+      hil: { enabled: false }
 
   rcs-010:
     agent: dev
-    depends_on: [rcs-009]
+    depends_on: [rcs-001]
     description: |
       Add MCP resource endpoints for 4 key schemas/docs:
       requirements-input.schema.yaml, requirements-input.po.schema.yaml,
@@ -146,10 +148,10 @@ tasks:
 
   rcs-012:
     agent: dev
-    depends_on: [rcs-009]
+    depends_on: [rcs-010]
     description: |
-      Add ai-sdd interop integration test for MCP server. Simulate typical
-      ai-sdd agent call sequence (validate_lock → find_gaps → coverage_report →
-      impact_analysis → available_tasks). Test error handling for missing/malformed
-      inputs. Verify graph tools and query tools produce consistent results.
+      Add ai-sdd interop integration test for MCP server. Test resource
+      endpoints (4 URIs return correct content), existing graph tool regression
+      (standard 7-step call sequence), error handling for missing/malformed
+      inputs. Optional CS↔RMS compatibility check if RMS is available.
       Spec: specs/refactor-coding-standards/tasks/RCS-012-interop-test.md

@@ -10,27 +10,44 @@
 
 ## 1. Context
 
-The merge plan (MERGE-PLAN-v2.md) defined a two-project split:
+The merge plan (MERGE-PLAN-v2.md) originally defined a two-project split. The
+ecosystem has since grown to **three projects** with clear, non-overlapping roles
+(see `docs/ecosystem-proposal-opus.md`):
 
-- **ai-sdd** — enforcement + orchestration (blocks tasks, transitions state)
-- **coding-standards** — read-only analysis + queries (MCP server, validators, scripts)
+| Project | Role | One-liner |
+|---------|------|-----------|
+| **repeatability-mcp-server (RMS)** | Traceability Engine | Builds, validates, queries, and exports requirements traceability graphs |
+| **coding-standards (CS)** | Standards Library | Provides agent prompts, language-specific coding rules, schemas, and CI validation scripts |
+| **ai-sdd** | Orchestrator | Dispatches tasks to agents, manages workflow state, and enforces governance |
 
 The merge direction (coding-standards → ai-sdd) is complete or in-progress via the
 18 MCS tasks. This plan covers the **reverse direction**: pruning coding-standards to
-eliminate redundancy, update documentation to point at ai-sdd for enforcement, and
-ensure the remaining tools work cleanly as a standalone analysis toolkit.
+eliminate redundancy, update documentation to point at ai-sdd for enforcement,
+redirect graph/query tooling to RMS, and ensure the remaining content works cleanly
+as a standalone standards library.
+
+**Key ecosystem insight:** CS's graph tools (6 MCP tools, 9 validators, 11 query
+methods) are a simplified fork of RMS (6 MCP tools, 20+ validators, 14 query
+patterns). Rather than enhancing CS's graph tools, new graph/query features should
+go to RMS. CS should evolve toward being a pure knowledge base: prompts + standards
++ schemas + scripts.
 
 ---
 
 ## 2. Inventory: What coding-standards Contains Today
 
-### Tools (3 NPM packages) — ALL STAY
+### Tools (3 NPM packages) — KEEP (deprecation path planned)
 
 | Package | Location | Purpose | Verdict |
 |---------|----------|---------|---------|
-| `@coding-standards/mcp-server` | `tools/mcp-server/` | Graph building + querying (6 MCP tools) | **KEEP** |
-| `@coding-standards/validators` | `tools/validators/` | 9 validation rules (informational lint) | **KEEP** |
-| `@coding-standards/query-engine` | `tools/query-engine/` | 11 graph query methods + CLI | **KEEP** |
+| `@coding-standards/mcp-server` | `tools/mcp-server/` | Graph building + querying (6 MCP tools) | **KEEP** — deprecated once RMS integration is live |
+| `@coding-standards/validators` | `tools/validators/` | 9 validation rules (informational lint) | **KEEP** — superset in RMS (20+ rules) |
+| `@coding-standards/query-engine` | `tools/query-engine/` | 11 graph query methods + CLI | **KEEP** — superset in RMS (14 patterns) |
+
+> **Deprecation note:** These packages work today and should continue to work for
+> non-ai-sdd users. However, new graph/query/validation features should be added
+> to **repeatability-mcp-server**, not here. Once RMS is wired into ai-sdd (Phase 2
+> of ecosystem proposal), CS graph tools become redundant. See `docs/ecosystem-proposal-opus.md` §Migration.
 
 ### Scripts (13 bash) — MIXED
 
@@ -190,37 +207,47 @@ Add a section in the manual explaining the ai-sdd integration pattern:
 
 ---
 
-### Phase 3 — MCP Server Enhancement (2 days)
+### Phase 3 — MCP Server: Resources + RMS Redirect (1.5 days)
 
-With the split clarified, enhance the MCP server to be the primary interface for
-ai-sdd agents calling coding-standards tools.
+With the three-project ecosystem clarified, CS's MCP server role is to expose
+**schemas and standards as resources** — not to duplicate graph/query tooling that
+RMS already provides.
 
-#### 3.1 Add high-level query tools to MCP server
+#### 3.1 Redirect query tools to RMS (NO new tools in CS)
 
-The MCP server currently exposes 6 graph-level tools. Add convenience tools that
-wrap the QueryEngine and ValidationEngine for direct use by ai-sdd agents:
+~~The original plan proposed adding 6 high-level query tools to the CS MCP server.~~
+**This is now redirected to repeatability-mcp-server (RMS)**, which already has
+equivalent (and more powerful) implementations:
 
-| Tool | Wraps | Purpose |
-|------|-------|---------|
-| `validate_lock` | ValidationEngine | Run all 9 rules, return violations |
-| `find_gaps` | QueryEngine.findAllGaps() | Aggregate gap analysis |
-| `impact_analysis` | QueryEngine.getImpactChain() | What breaks if X changes |
-| `coverage_report` | QueryEngine.getRequirementCoverage() | REQ→TASK→TEST chains |
-| `dependency_chain` | QueryEngine.getDependencyChain() | Task ordering analysis |
-| `available_tasks` | QueryEngine.getAvailableTasks() | Ready-to-work tasks |
+| Originally Proposed for CS | RMS Equivalent |
+|---------------------------|----------------|
+| `validate_lock` | `graph_validate` with all rulesets (20+ rules vs CS's 9) |
+| `find_gaps` | `graph_query` pattern `gaps` / `QueryEngine.findAllGaps()` |
+| `impact_analysis` | `graph_query` pattern `impact_chain` / `QueryEngine.getImpactChain()` |
+| `coverage_report` | `QueryEngine.getRequirementCoverage()` / `getFullyCoveredRequirements()` |
+| `dependency_chain` | `graph_query` pattern `dependency_chain` / `QueryEngine.getDependencyChain()` |
+| `available_tasks` | `graph_query` pattern `available_tasks` / `QueryEngine.getAvailableTasks()` |
 
-These are all **read-only** — they report without blocking.
+**RCS-009 is now:** Add convenience wrapper tools to RMS (load lock → build graph →
+run query → return JSON). This work is tracked in the RMS repo, not here.
 
-**Ticket: RCS-009**
+**What CS does instead:** Add a brief `tools/mcp-server/DEPRECATION.md` noting
+that new query/validation features go to RMS, and update the MCP server README
+to reference RMS for advanced queries.
+
+**Ticket: RCS-009** (reduced from M to XS — doc-only change in CS)
 
 #### 3.2 Add resource endpoints
 
-Expose key schemas as MCP resources so agents can read them without file access:
+Expose key schemas as MCP resources so agents can read them without file access.
+This is squarely in CS's domain — schemas ARE standards:
+
 - `requirements-input.schema.yaml`
+- `requirements-input.po.schema.yaml`
 - `requirements-lock.md` (immutability contract)
 - `acceptance-criteria-format.md`
 
-**Ticket: RCS-010**
+**Ticket: RCS-010** (no longer depends on RCS-009)
 
 ---
 
@@ -237,10 +264,12 @@ in ai-sdd, update them to call `ai-sdd` CLI instead (or document the split).
 
 #### 4.2 Add ai-sdd interop test
 
-Add a test that verifies the MCP server tools work correctly when called with
-typical ai-sdd agent request patterns.
+Add a test that verifies the CS MCP server resource endpoints and existing graph
+tools work correctly when called with typical ai-sdd agent request patterns.
+Also verify that CS graph tool results are consistent with RMS results when given
+the same lock file input (cross-project compatibility).
 
-**Ticket: RCS-012**
+**Ticket: RCS-012** (no longer depends on RCS-009 — tests existing tools + resources)
 
 ---
 
@@ -249,33 +278,39 @@ typical ai-sdd agent request patterns.
 | ID | Phase | Description | Size | Depends |
 |----|-------|-------------|------|---------|
 | RCS-001 | 1 | Archive redundant files to `archive/merged-to-ai-sdd/` | XS | — |
-| RCS-002 | 2 | Add ai-sdd integration section to README.md | XS | RCS-001 |
+| RCS-002 | 2 | Add ai-sdd + RMS integration section to README.md | XS | RCS-001 |
 | RCS-003 | 2 | Remove orchestration from CLAUDE.md, add ai-sdd pointer | S | RCS-001 |
 | RCS-004 | 2 | Add ai-sdd note to AGENTS.md | XS | RCS-001 |
 | RCS-005 | 2 | Add cross-references to agents/constitution.md | XS | RCS-001 |
 | RCS-006 | 2 | Add overlay cross-reference to toolgate.yaml | XS | RCS-001 |
 | RCS-007 | 2 | Update workflow/index.md after archival | XS | RCS-001 |
 | RCS-008 | 2 | Add ai-sdd integration section to MANUAL.md | S | RCS-001 |
-| RCS-009 | 3 | Add 6 high-level query tools to MCP server | M | RCS-001 |
-| RCS-010 | 3 | Add MCP resource endpoints for schemas | S | RCS-009 |
+| RCS-009 | 3 | Add DEPRECATION.md + redirect query tools to RMS | XS | RCS-001 |
+| RCS-010 | 3 | Add MCP resource endpoints for schemas | S | RCS-001 |
 | RCS-011 | 4 | Update CI template references | XS | RCS-001 |
-| RCS-012 | 4 | Add ai-sdd interop test for MCP server | S | RCS-009 |
+| RCS-012 | 4 | Add ai-sdd interop test (resources + graph tools) | S | RCS-010 |
 
-**Total estimate: ~4 days**
+**Total estimate: ~3 days** (reduced — RCS-009 is now doc-only in CS)
 
 ---
 
-## 5. What Does NOT Change
+## 5. What Does NOT Change (now)
 
-- MCP server graph tools (`graph_init`, `graph_add_node`, etc.) — untouched
-- QueryEngine (11 query methods) — untouched
-- ValidationEngine (9 rules) — untouched
+- MCP server graph tools (`graph_init`, `graph_add_node`, etc.) — **functional but frozen**; no new features (go to RMS instead)
+- QueryEngine (11 query methods) — **functional but frozen**; RMS has 14 patterns
+- ValidationEngine (9 rules) — **functional but frozen**; RMS has 20+ rules
 - All bash analysis scripts except archived 2 — untouched
-- All schemas (`requirements-input`, `requirements-lock`) — untouched
+- All schemas (`requirements-input`, `requirements-lock`) — untouched; **CS owns these permanently**
 - All examples and templates — untouched
 - `java/` and `kotlin/` language standards — untouched
+- Agent prompts (`coder.md`, `code-reviewer.md`, etc.) — untouched; **CS owns these permanently**
 - `plans/` directory — untouched
-- `tests/` directory — untouched
+- `tests/` directory — untouched (existing tests still run; no new graph tool tests)
+
+> **"Frozen" means:** The code works, tests pass, non-ai-sdd users can still use it.
+> But new graph/query/validation features go to RMS, not here. Eventually (Phase 3
+> of the ecosystem migration), these packages will be deprecated once ai-sdd agents
+> use RMS directly.
 
 ---
 
@@ -283,14 +318,15 @@ typical ai-sdd agent request patterns.
 
 After refactor:
 
-1. `npm test` in `tools/mcp-server/` — passes
+1. `npm test` in `tools/mcp-server/` — passes (existing 6 tools still work)
 2. `npm test` in `tools/validators/` — passes
 3. `npm test` in `tools/query-engine/` — passes
 4. All remaining bash scripts run without errors
-5. MCP server starts and responds to all 6 + 6 new tools
+5. MCP server starts and responds to 6 tools + 4 resource endpoints
 6. No dangling references to archived files in documentation
-7. README.md clearly states the ai-sdd integration pattern
+7. README.md clearly states the three-project ecosystem and CS's role
 8. Archived files have prepended notes explaining the move
+9. `DEPRECATION.md` in `tools/mcp-server/` explains RMS as the future for graph tools
 
 ---
 
@@ -300,5 +336,8 @@ After refactor:
 |------|------------|
 | Breaking coding-standards for non-ai-sdd users | No tools removed; only docs updated and redundant files archived |
 | Archive creates confusion | Clear archive header with ai-sdd pointers |
-| MCP server changes break existing clients | New tools are additive; existing 6 tools untouched |
+| MCP server changes break existing clients | Existing 6 graph tools untouched; only resource endpoints added |
 | CI templates reference wrong project | RCS-011 audits and updates all CI references |
+| RMS not ready when CS graph tools are frozen | CS tools still work indefinitely; "frozen" means no new features, not removed |
+| Three-repo coordination overhead | Lock file format is the only shared contract; versioned with `metadata.version` |
+| Users confused about CS vs RMS for graph queries | DEPRECATION.md + README explain which project to use for what |

@@ -2,14 +2,25 @@
  * ConstitutionResolver — recursive merge of constitution.md files.
  * Framework → root → submodule hierarchy.
  * Root malformed → hard error. Submodule parse failure → warn + skip (strict_parse=false).
+ *
+ * Standards enforcement: coding standards docs (e.g. standards/java/CLAUDE-java.md)
+ * are merged into the constitution so every agent receives them.
  */
 
 import { existsSync, readFileSync, readdirSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve, isAbsolute } from "path";
 
 export interface ConstitutionOptions {
   project_path: string;
   strict_parse?: boolean; // default true
+  /**
+   * Explicit list of standards file paths (relative to project_path or absolute).
+   * When undefined, auto-discovers *.md files under <project_path>/standards/.
+   * Pass [] to disable standards entirely.
+   */
+  standards_paths?: string[];
+  /** Hard error on missing standard file. Default false. */
+  standards_strict?: boolean;
 }
 
 export interface ConstitutionResult {
@@ -86,13 +97,90 @@ function findConstitutionFiles(projectPath: string): string[] {
   return files;
 }
 
+/**
+ * Auto-discover all *.md files under <projectPath>/standards/ (recursive).
+ * Returns paths sorted for deterministic ordering.
+ */
+function discoverDefaultStandards(projectPath: string): string[] {
+  const standardsDir = join(projectPath, "standards");
+  if (!existsSync(standardsDir)) return [];
+
+  const found: string[] = [];
+
+  function walk(dir: string): void {
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          found.push(full);
+        }
+      }
+    } catch { /* unreadable — skip */ }
+  }
+
+  walk(standardsDir);
+  return found;
+}
+
 export class ConstitutionResolver {
   private readonly projectPath: string;
   private readonly strictParse: boolean;
+  private readonly standardsPaths: string[] | undefined;
+  private readonly standardsStrict: boolean;
 
   constructor(options: ConstitutionOptions) {
     this.projectPath = resolve(options.project_path);
     this.strictParse = options.strict_parse ?? true;
+    this.standardsPaths = options.standards_paths;
+    this.standardsStrict = options.standards_strict ?? false;
+  }
+
+  /**
+   * Resolve coding standards documents.
+   * - If standards_paths was explicitly set (including []), use it as-is.
+   * - Otherwise auto-discover from standards/ in the project root.
+   */
+  private resolveStandards(): { content: string; sources: string[]; warnings: string[] } {
+    const warnings: string[] = [];
+    const sources: string[] = [];
+    const parts: string[] = [];
+
+    const paths: string[] = this.standardsPaths !== undefined
+      ? this.standardsPaths.map((p) =>
+          isAbsolute(p) ? p : resolve(this.projectPath, p),
+        )
+      : discoverDefaultStandards(this.projectPath);
+
+    for (const filePath of paths) {
+      if (!existsSync(filePath)) {
+        const msg = `Standards file not found: ${filePath}`;
+        if (this.standardsStrict) throw new Error(msg);
+        warnings.push(msg);
+        continue;
+      }
+      try {
+        const content = readFileSync(filePath, "utf-8").trim();
+        if (!content) {
+          warnings.push(`Empty standards file: ${filePath}`);
+          continue;
+        }
+        parts.push(`<!-- standards: ${filePath} -->\n${content}`);
+        sources.push(filePath);
+      } catch (err) {
+        const msg = `Failed to read standards file ${filePath}: ${err instanceof Error ? err.message : String(err)}`;
+        if (this.standardsStrict) throw new Error(msg);
+        warnings.push(msg);
+      }
+    }
+
+    const content = parts.length > 0
+      ? `## Coding Standards\n\n${parts.join("\n\n---\n\n")}`
+      : "";
+
+    return { content, sources, warnings };
   }
 
   /**
@@ -142,7 +230,17 @@ export class ConstitutionResolver {
       return { content: "", sources, warnings };
     }
 
-    const content = mergeConstitutions(constitutions);
+    const constitutionContent = mergeConstitutions(constitutions);
+
+    // Append coding standards after the constitution content
+    const standards = this.resolveStandards();
+    warnings.push(...standards.warnings);
+    sources.push(...standards.sources);
+
+    const content = standards.content
+      ? `${constitutionContent}\n\n${standards.content}`
+      : constitutionContent;
+
     return { content, sources, warnings };
   }
 

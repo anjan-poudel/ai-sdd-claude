@@ -4,9 +4,13 @@ description: |
   Elicit and document project requirements. Produce a structured folder of
   requirements: one file per FR, one file per NFR, with Gherkin acceptance
   criteria embedded in each file, and index files at each folder level.
+  After stakeholder HIL sign-off, produce a requirements lock file that
+  captures a stable snapshot for downstream drift detection.
 overlays:
   hil:         { enabled: true }    # BA output typically needs stakeholder review
   policy_gate: { risk_tier: T0 }    # acceptance: index must be present
 outputs:
   - path: "specs/{{task_id}}.md"
     contract: requirements_doc
+  - path: "specs/{{task_id}}.lock.yaml"
+    contract: requirements_lock
