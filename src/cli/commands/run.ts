@@ -116,9 +116,10 @@ export function registerRunCommand(program: Command): void {
       // State manager
       const stateDir = resolve(projectPath, ".ai-sdd", "state");
       const stateManager = new StateManager(stateDir, workflow.config.name, projectPath);
-      if (options.resume) {
-        stateManager.load();
-      }
+      // Always load persisted state if it exists — auto-resume is the correct default.
+      // StateManager.load() is idempotent: if no state file exists it stays fresh.
+      // The --resume flag is kept for backward compatibility but is now a no-op.
+      stateManager.load();
 
       // Resolve standards paths: --standards CLI flag > config.standards.paths > auto-discover
       const standardsArg = options.standards as string | undefined;

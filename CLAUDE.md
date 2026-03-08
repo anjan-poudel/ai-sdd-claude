@@ -70,7 +70,9 @@ PENDING → RUNNING → COMPLETED
 ```
 Invalid transitions throw `StateError`.
 
-**HIL resume** — when the engine encounters a task in `HIL_PENDING` state (from persisted state on `--resume`), it skips the pre-overlay chain and calls `awaitResolution()` directly using the stored `hil_item_id`. This prevents the state machine reset bug where pre-overlays would fire again and create duplicate HIL items. See `specs/tasks/T025-hil-resume-state-reset.md`.
+**HIL resume** — when the engine encounters a task in `HIL_PENDING` state (from persisted state), it skips the pre-overlay chain and calls `awaitResolution()` directly using the stored `hil_item_id`. This prevents the state machine reset bug where pre-overlays would fire again and create duplicate HIL items. See `specs/tasks/T025-hil-resume-state-reset.md`.
+
+**Auto-resume** — `ai-sdd run` always loads persisted state if a state file exists. The `--resume` flag is kept for backward compatibility but is now a no-op. There is no way to force a fresh run while a state file is present; delete `.ai-sdd/state/workflow-state.json` manually to start over.
 
 **Overlay chain order is locked** (enforced by `src/overlays/composition-rules.ts`):
 ```
@@ -136,6 +138,7 @@ Every state file carries `schema_version: "1"`. Version mismatch at startup → 
 
 ```
 ai-sdd run [--resume] [--task <id>] [--dry-run] [--step] [--workflow <name>] [--feature <name>] [--standards <paths|none>]
+           # --resume is a no-op; state is always auto-loaded if the state file exists
 ai-sdd status [--json] [--next --json] [--metrics] [--workflow <name>]
 ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp> [--feature <name>]
 ai-sdd validate-config
