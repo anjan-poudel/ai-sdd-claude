@@ -172,7 +172,10 @@ export function registerCompleteTaskCommand(program: Command): void {
       const stateManager = new StateManager(stateDir, "workflow", projectPath);
       stateManager.load();
       stateManager.transition(taskId, "COMPLETED", {
-        outputs: [{ path: rel, contract: contractName }],
+        outputs: [{
+          path: rel,
+          ...(contractName !== undefined && { contract: contractName }),
+        }],
       });
 
       // ─── Step 6: Update constitution manifest ─────────────────────────────────

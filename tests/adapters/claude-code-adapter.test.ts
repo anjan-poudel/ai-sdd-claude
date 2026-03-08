@@ -7,6 +7,12 @@ import { describe, it, expect } from "bun:test";
 import { ClaudeCodeAdapter } from "../../src/adapters/claude-code-adapter.ts";
 import type { AgentContext } from "../../src/types/index.ts";
 
+type ClaudeCodeAdapterPrivate = {
+  buildDelegationBrief: (taskId: string, context: AgentContext, options: typeof DISPATCH_OPTIONS) => string;
+  buildDirectPrompt: (context: AgentContext, options: typeof DISPATCH_OPTIONS) => string;
+  parseOutput: (taskId: string, stdout: string) => unknown;
+};
+
 const BASE_CONTEXT: AgentContext = {
   constitution: "# Project Constitution\n\nBuild a REST API.",
   handover_state: { previous_output: "requirements done" },
@@ -48,9 +54,8 @@ describe("ClaudeCodeAdapter: defaults", () => {
 // ─── Delegation brief ─────────────────────────────────────────────────────
 
 describe("ClaudeCodeAdapter: delegation brief", () => {
-  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "delegation" });
-  const brief: string = (adapter as unknown as Record<string, (...args: unknown[]) => string>)
-    ["buildDelegationBrief"]("design-l1", BASE_CONTEXT, DISPATCH_OPTIONS);
+  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "delegation" }) as unknown as ClaudeCodeAdapterPrivate;
+  const brief = adapter.buildDelegationBrief("design-l1", BASE_CONTEXT, DISPATCH_OPTIONS);
 
   it("includes task_id", () => {
     expect(brief).toContain("design-l1");
@@ -79,13 +84,16 @@ describe("ClaudeCodeAdapter: delegation brief", () => {
 });
 
 describe("ClaudeCodeAdapter: delegation brief — no outputs", () => {
-  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "delegation" });
+  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "delegation" }) as unknown as ClaudeCodeAdapterPrivate;
   const ctxNoOutputs: AgentContext = {
     ...BASE_CONTEXT,
-    task_definition: { ...BASE_CONTEXT.task_definition, outputs: undefined },
+    task_definition: {
+      id: BASE_CONTEXT.task_definition.id,
+      agent: BASE_CONTEXT.task_definition.agent,
+      description: BASE_CONTEXT.task_definition.description,
+    },
   };
-  const brief: string = (adapter as unknown as Record<string, (...args: unknown[]) => string>)
-    ["buildDelegationBrief"]("design-l1", ctxNoOutputs, DISPATCH_OPTIONS);
+  const brief = adapter.buildDelegationBrief("design-l1", ctxNoOutputs, DISPATCH_OPTIONS);
 
   it("still includes complete-task command when no outputs specified", () => {
     expect(brief).toContain("ai-sdd complete-task");
@@ -95,9 +103,8 @@ describe("ClaudeCodeAdapter: delegation brief — no outputs", () => {
 // ─── Direct prompt ────────────────────────────────────────────────────────
 
 describe("ClaudeCodeAdapter: direct prompt", () => {
-  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "direct" });
-  const prompt: string = (adapter as unknown as Record<string, (...args: unknown[]) => string>)
-    ["buildDirectPrompt"](BASE_CONTEXT, DISPATCH_OPTIONS);
+  const adapter = new ClaudeCodeAdapter({ dispatch_mode: "direct" }) as unknown as ClaudeCodeAdapterPrivate;
+  const prompt = adapter.buildDirectPrompt(BASE_CONTEXT, DISPATCH_OPTIONS);
 
   it("includes constitution", () => {
     expect(prompt).toContain("# Project Constitution");
@@ -115,10 +122,8 @@ describe("ClaudeCodeAdapter: direct prompt", () => {
 // ─── Output parsing ───────────────────────────────────────────────────────
 
 describe("ClaudeCodeAdapter: parseOutput", () => {
-  const adapter = new ClaudeCodeAdapter();
-  const parse = (stdout: string) =>
-    (adapter as unknown as Record<string, (id: string, out: string) => unknown>)
-      ["parseOutput"]("design-l1", stdout);
+  const adapter = new ClaudeCodeAdapter() as unknown as ClaudeCodeAdapterPrivate;
+  const parse = (stdout: string) => adapter.parseOutput("design-l1", stdout);
 
   // claude --print --output-format json schema:
   // { result, is_error, total_input_tokens, total_output_tokens, total_cost_usd, ... }

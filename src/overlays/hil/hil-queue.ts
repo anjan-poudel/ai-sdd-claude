@@ -100,14 +100,22 @@ export class HilQueue {
    * Resolve a HIL item (human approved).
    */
   resolve(id: string, notes?: string): HilItem {
-    return this.updateStatus(id, "RESOLVED", { notes });
+    return this.updateStatus(
+      id,
+      "RESOLVED",
+      notes !== undefined ? { notes } : undefined,
+    );
   }
 
   /**
    * Reject a HIL item (human rejected).
    */
   reject(id: string, reason?: string): HilItem {
-    return this.updateStatus(id, "REJECTED", { rejection_reason: reason });
+    return this.updateStatus(
+      id,
+      "REJECTED",
+      reason !== undefined ? { rejection_reason: reason } : undefined,
+    );
   }
 
   /**

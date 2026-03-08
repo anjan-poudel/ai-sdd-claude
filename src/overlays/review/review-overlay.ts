@@ -27,10 +27,13 @@ export class ReviewOverlay implements BaseOverlay {
     }
 
     // Check if reviewer agent decided GO or NO_GO via handover state
-    const reviewDecision = result.handover_state?.["review"]?.decision as string | undefined;
+    const review = result.handover_state?.["review"] as
+      | { decision?: string; feedback?: string }
+      | undefined;
+    const reviewDecision = review?.decision;
 
     if (reviewDecision === "NO_GO") {
-      const feedback = result.handover_state?.["review"]?.feedback as string | undefined;
+      const feedback = review?.feedback;
       return {
         accept: false,
         new_status: "NEEDS_REWORK",

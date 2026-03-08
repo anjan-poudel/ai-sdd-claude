@@ -18,6 +18,7 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "types": ["bun-types", "node"],
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@/*": ["./src/*"]

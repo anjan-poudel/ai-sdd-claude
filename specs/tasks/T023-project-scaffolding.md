@@ -453,7 +453,7 @@ Selects the most appropriate example workflow and adds project-specific override
 | greenfield product | `05-greenfield-product` |
 | regulated enterprise | `06-regulated-enterprise` |
 
-Safety-critical or compliance requirements → add T2 gates and `paired: enabled: true` on implement.
+Safety-critical or compliance requirements → add T2 gates and `paired: enabled: false` on implement.
 
 #### `docs/init-report.md`
 

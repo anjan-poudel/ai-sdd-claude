@@ -10,6 +10,7 @@ import type {
   TaskResult,
   TokenUsage,
 } from "../types/index.ts";
+import { AdapterError } from "./errors.ts";
 
 export interface RetryPolicy {
   max_attempts: number;
@@ -93,18 +94,25 @@ export abstract class RuntimeAdapter {
         return result;
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        const adapterErr = err instanceof AdapterError ? err : null;
+        const error_type: AdapterErrorType = adapterErr?.error_type ?? "unknown";
+        const retryable = adapterErr !== null ? adapterErr.retryable : true;
+
         lastResult = {
           status: "FAILED",
           error: errMsg,
-          error_type: "unknown",
+          error_type,
         };
-        if (attempt < policy.max_attempts) {
-          const delay = Math.min(
-            policy.backoff_base_ms * Math.pow(2, attempt - 1),
-            policy.backoff_max_ms,
-          );
-          await sleep(delay);
+
+        if (!retryable || attempt >= policy.max_attempts) {
+          return lastResult;
         }
+
+        const delay = Math.min(
+          policy.backoff_base_ms * Math.pow(2, attempt - 1),
+          policy.backoff_max_ms,
+        );
+        await sleep(delay);
       }
     }
 

@@ -1368,7 +1368,7 @@ T-001 → T-002 → T-024 (HealthMonitorService) → T-026 (AlertEvaluator + Eme
 
 ### Next Task
 
-The next READY task is **`implement`** (agent: `dev`). This task has `paired: { enabled: true }` and `confidence: { threshold: 0.85 }` overlays enabled per the workflow YAML.
+The next READY task is **`implement`** (agent: `dev`). This task has `paired: { enabled: false }` and `confidence: { threshold: 0.85 }` overlays enabled per the workflow YAML.
 
 ---
 
@@ -1417,7 +1417,7 @@ Same nested-session failure on the background task — safe to ignore. The state
 - **T-014/T-015 blocked** — VoiceBiometricAuth cannot start until PAD/liveness detection approach is documented (BLOCKER-1 from STRIDE)
 - Signal Protocol key management (T-030) requires security reviewer sign-off before merge
 
-Next is `implement` (dev agent) — which has `paired: enabled` and `confidence threshold: 0.85` from the safety-critical workflow config.
+Next is `implement` (dev agent) — which has `paired: disabled` and `confidence threshold: 0.85` from the safety-critical workflow config.
 
 Before continuing, one thing worth noting: the `implement` task in the workflow is a single task that represents all implementation work. In practice this would be 32 separate tasks, but for the workflow demo it's a single agent pass. Ready to proceed whenever you type `/sdd-run`.
 

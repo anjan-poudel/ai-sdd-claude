@@ -59,6 +59,18 @@ const TOOLS = [
     },
   },
   {
+    name: "reject_hil",
+    description: "Reject a HIL item",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "HIL item ID" },
+        reason: { type: "string", description: "Rejection reason (optional)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "get_constitution",
     description: "Get the merged project constitution",
     inputSchema: {
@@ -161,6 +173,14 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
         const { id, notes } = args as { id: string; notes?: string };
         const cliArgs = ["hil", "resolve", id, ...projectArg];
         if (notes) cliArgs.push("--notes", notes);
+        const result = runCli(cliArgs, options.project_path);
+        return { content: [{ type: "text", text: result.stdout || result.stderr }] };
+      }
+
+      case "reject_hil": {
+        const { id, reason } = args as { id: string; reason?: string };
+        const cliArgs = ["hil", "reject", id, ...projectArg];
+        if (reason) cliArgs.push("--reason", reason);
         const result = runCli(cliArgs, options.project_path);
         return { content: [{ type: "text", text: result.stdout || result.stderr }] };
       }

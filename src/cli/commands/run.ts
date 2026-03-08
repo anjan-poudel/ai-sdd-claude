@@ -242,6 +242,9 @@ export function registerRunCommand(program: Command): void {
           ...(config.engine?.max_concurrent_tasks !== undefined && { max_concurrent_tasks: config.engine.max_concurrent_tasks }),
           ...(config.engine?.cost_budget_per_run_usd !== undefined && { cost_budget_per_run_usd: config.engine.cost_budget_per_run_usd }),
           ...(config.engine?.cost_enforcement !== undefined && { cost_enforcement: config.engine.cost_enforcement }),
+          ...(config.engine?.max_context_tokens !== undefined && { max_context_tokens: config.engine.max_context_tokens }),
+          ...(config.engine?.context_warning_threshold_pct !== undefined && { context_warning_threshold_pct: config.engine.context_warning_threshold_pct }),
+          ...(config.engine?.context_hil_threshold_pct !== undefined && { context_hil_threshold_pct: config.engine.context_hil_threshold_pct }),
         },
         providerChain,
       );

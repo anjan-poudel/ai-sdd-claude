@@ -45,6 +45,20 @@ A Markdown file (or `CLAUDE.md`) that describes the project to agents. The engin
 ### HIL Queue
 File-based queue of items awaiting human review. Agents pause at `HIL_PENDING` until a human resolves or rejects via CLI.
 
+### Task States
+
+| State | Meaning |
+|---|---|
+| `PENDING` | Not yet started — waiting for dependencies or to be dispatched |
+| `RUNNING` | Dispatched to agent — in progress |
+| `COMPLETED` | Done — output accepted and written |
+| `NEEDS_REWORK` | Agent output rejected (gate fail, secret detected, review NO_GO) — will retry |
+| `HIL_PENDING` | Paused — awaiting human approval via `ai-sdd hil` |
+| `FAILED` | Terminal — max iterations exceeded, HIL rejected, or unrecoverable error |
+| `CANCELLED` | Terminal — explicitly cancelled |
+
+State machine: `PENDING → RUNNING → COMPLETED`, with branches to `NEEDS_REWORK → RUNNING`, `HIL_PENDING → RUNNING`, and `FAILED`/`CANCELLED` as terminal states.
+
 ---
 
 ## Project Setup
@@ -72,10 +86,13 @@ your-project/
     └── sdd-status/SKILL.md  # /sdd-status — progress table
 ```
 
-**Workflow lookup order** (first found wins):
-1. `.ai-sdd/workflow.yaml` — explicit single-file override
-2. `.ai-sdd/workflows/default-sdd.yaml` — copied by `ai-sdd init`
-3. Bundled framework default
+**Workflow lookup order** (first found wins for `run` and `complete-task`):
+1. `--workflow <name>` → `.ai-sdd/workflows/<name>.yaml`
+2. `--feature <name>` → `specs/<feature>/workflow.yaml`
+3. `specs/workflow.yaml` — greenfield workflow alongside spec docs
+4. `.ai-sdd/workflow.yaml` — backward-compat single-file override
+5. `.ai-sdd/workflows/default-sdd.yaml` — copied by `ai-sdd init`
+6. Bundled framework default
 
 ### Minimal `ai-sdd.yaml`
 
@@ -513,14 +530,18 @@ Gate fail → `NEEDS_REWORK` with feedback injected into the next iteration.
 
 ### `run`
 
+State is always auto-loaded from `workflow-state.json` when it exists — delete it to start fresh. `--resume` is kept for backward compatibility but is a no-op.
+
 ```bash
 ai-sdd run [options] [--project <dir>]
 
 Options:
-  --resume            Resume from last saved state
-  --task <id>         Run specific task + unmet dependencies
-  --dry-run           Print execution plan without LLM calls
-  --step              Pause after each parallel group
+  --task <id>             Run specific task + unmet dependencies
+  --dry-run               Print execution plan without LLM calls
+  --step                  Pause after each parallel group
+  --workflow <name>       Use named workflow from .ai-sdd/workflows/
+  --feature <name>        Use workflow from specs/<feature>/workflow.yaml
+  --standards <paths|none>  Override coding standards paths
 ```
 
 ### `status`
@@ -589,11 +610,13 @@ Tools: claude_code | codex | roo_code
 
 ### `serve --mcp`
 
+Stdio transport only — no `--port` flag. Configure your tool to connect via stdio.
+
 ```bash
-ai-sdd serve --mcp [--port 3000] [--project <dir>]
+ai-sdd serve --mcp [--project <dir>]
 ```
 
-MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `get_constitution`.
+MCP tools (7): `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `reject_hil`, `get_constitution`.
 
 ---
 
@@ -679,14 +702,35 @@ ai-sdd init --tool codex --project /path/to/project
 ai-sdd init --tool roo_code --project /path/to/project
 ```
 
-2. Start MCP server:
+This creates:
+- `.roomodes` — 6 role-specific agent modes (sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer), each with `mcp` group enabled
+- `.roo/mcp.json` — MCP server config pointing to `ai-sdd serve --mcp`
+- `.ai-sdd/ai-sdd.yaml` with `adapter.type: roo_code`
+
+> **Note on adapter type**: `roo_code` is not a runtime adapter — Roo Code agents call the MCP server directly. The engine does not dispatch tasks; agents drive themselves via MCP tools. If you also want `ai-sdd run` to work programmatically, set `adapter.type: claude_code` or `openai` in `ai-sdd.yaml`.
+
+2. Start MCP server (stdio transport — Roo Code auto-connects via `.roo/mcp.json`):
 
 ```bash
-ai-sdd serve --mcp --port 3000
+ai-sdd serve --mcp
 ```
 
-3. Open Roo Code and select a mode (`sdd-ba`, `sdd-architect`, `sdd-pe`, `sdd-le`, `sdd-dev`, `sdd-reviewer`).
-4. Execute tasks through MCP tools (`get_next_task`, `get_constitution`, `complete_task`, `list_hil_items`, `resolve_hil`).
+Or let Roo Code launch it automatically from the `.roo/mcp.json` config.
+
+3. Select a mode in Roo Code matching the intended agent role.
+
+4. The mode's `customInstructions` guide the agent through the MCP tool sequence:
+
+```
+get_next_task           → find assigned work (DAG-aware, only unblocked tasks)
+get_constitution        → fetch project context for the task
+[do the work]
+complete_task           → submit output artifact (atomic, validated)
+list_hil_items          → check for pending HIL approvals
+resolve_hil / reject_hil → respond to HIL requests
+```
+
+All 7 MCP tools are available: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `reject_hil`, `get_constitution`.
 
 ---
 
@@ -740,11 +784,8 @@ adapter:
 
 engine:
   max_concurrent_tasks: 3
-  rate_limit_requests_per_minute: 20
   cost_budget_per_run_usd: 10.00
   cost_enforcement: pause       # warn | pause | stop
-  context_warning_threshold_pct: 80
-  context_hil_threshold_pct: 95
 
 overlays:
   hil:

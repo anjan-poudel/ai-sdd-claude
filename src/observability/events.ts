@@ -153,6 +153,14 @@ export const ConfidenceComputedEvent = BaseEventSchema.extend({
   }).passthrough(),
 });
 
+export const ContextAssembledEvent = BaseEventSchema.extend({
+  type: z.literal("context.assembled"),
+  data: z.object({
+    task_id: z.string(),
+    token_count: z.number(),
+  }).passthrough(),
+});
+
 export const ContextWarningEvent = BaseEventSchema.extend({
   type: z.literal("context.warning"),
   data: z.object({

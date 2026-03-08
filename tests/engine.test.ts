@@ -453,3 +453,219 @@ describe("Engine: buildProviderChain wiring integration (ROA-T-011)", () => {
     expect(result.completed).toContain("task-a");
   });
 });
+
+// ─── T011: Context observability ───────────────────────────────────────────
+
+describe("Engine: context.assembled event", () => {
+  function makeEngineWithEmitter(
+    workflowYaml: string,
+    config: Parameters<typeof Engine>[7] = {},
+  ): { engine: Engine; emitter: ObservabilityEmitter } {
+    mkdirSync(join(TEST_DIR, ".ai-sdd", "state"), { recursive: true });
+    const workflow = WorkflowLoader.loadYAML(workflowYaml);
+    const registry = new AgentRegistry(DEFAULTS_DIR);
+    registry.loadDefaults();
+    const stateManager = new StateManager(
+      join(TEST_DIR, ".ai-sdd", "state"),
+      workflow.config.name,
+      TEST_DIR,
+    );
+    const constitutionResolver = new ConstitutionResolver({
+      project_path: TEST_DIR,
+      strict_parse: false,
+    });
+    const manifestWriter = createManifestWriter(TEST_DIR);
+    const emitter = new ObservabilityEmitter({
+      run_id: crypto.randomUUID(),
+      workflow_id: workflow.config.name,
+      log_level: "ERROR",
+    });
+    const engine = new Engine(
+      workflow,
+      stateManager,
+      registry,
+      new MockAdapter(),
+      constitutionResolver,
+      manifestWriter,
+      emitter,
+      { max_concurrent_tasks: 1, ...config },
+    );
+    return { engine, emitter };
+  }
+
+  it("emits context.assembled with token_count after assembly", async () => {
+    const { engine, emitter } = makeEngineWithEmitter(SINGLE_TASK_WORKFLOW);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+
+    await engine.run();
+
+    const assembled = events.filter((e) => e.type === "context.assembled");
+    expect(assembled.length).toBeGreaterThan(0);
+    expect(assembled[0]!.data.task_id).toBe("task-a");
+    expect(typeof assembled[0]!.data.token_count).toBe("number");
+    expect(assembled[0]!.data.token_count as number).toBeGreaterThan(0);
+  });
+
+  it("emits context.warning when usage exceeds warning threshold", async () => {
+    const { engine, emitter } = makeEngineWithEmitter(SINGLE_TASK_WORKFLOW, {
+      max_context_tokens: 1,
+      context_warning_threshold_pct: 80,
+      context_hil_threshold_pct: 10_000_000,
+    });
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+
+    await engine.run();
+
+    const warnings = events.filter((e) => e.type === "context.warning");
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0]!.data.task_id).toBe("task-a");
+    expect(warnings[0]!.data.usage_pct as number).toBeGreaterThan(80);
+  });
+
+  it("does not emit context.warning when usage is below threshold", async () => {
+    const { engine, emitter } = makeEngineWithEmitter(SINGLE_TASK_WORKFLOW, {
+      max_context_tokens: 10_000_000,
+      context_warning_threshold_pct: 80,
+    });
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+
+    await engine.run();
+
+    expect(events.filter((e) => e.type === "context.warning").length).toBe(0);
+  });
+});
+
+// ─── T015: Adapter retry policy ─────────────────────────────────────────────
+
+describe("Adapter: ContextOverflowError is not retried", () => {
+  it("ContextOverflowError has retryable=false and error_type=context_overflow", () => {
+    const { ContextOverflowError } = require("../src/adapters/errors.ts");
+    const err = new ContextOverflowError("Too large", 50000, 40000);
+    expect(err.retryable).toBe(false);
+    expect(err.error_type).toBe("context_overflow");
+  });
+
+  it("dispatchWithRetry returns immediately when ContextOverflowError is thrown (no retry)", async () => {
+    const { ContextOverflowError } = require("../src/adapters/errors.ts");
+    let callCount = 0;
+
+    class ThrowingAdapter extends MockAdapter {
+      override async dispatch() {
+        callCount++;
+        throw new ContextOverflowError("Context too large", 50000, 40000);
+      }
+    }
+
+    const adapter = new ThrowingAdapter();
+    const context = {
+      constitution: "test",
+      task_definition: { id: "t1", description: "test" },
+      dispatch_mode: "direct" as const,
+    };
+    const result = await adapter.dispatchWithRetry("t1", context, {
+      operation_id: "op:t1:run-1",
+      attempt_id: "op:t1:run-1",
+    });
+
+    expect(callCount).toBe(1); // NOT retried
+    expect(result.status).toBe("FAILED");
+    expect(result.error_type).toBe("context_overflow");
+  });
+
+  it("dispatchWithRetry retries on generic errors (no AdapterError.retryable=false)", async () => {
+    let callCount = 0;
+
+    class GenericThrowAdapter extends MockAdapter {
+      override async dispatch() {
+        callCount++;
+        if (callCount < 3) throw new Error("transient error");
+        return { status: "COMPLETED" as const };
+      }
+    }
+
+    const adapter = new GenericThrowAdapter();
+    const context = {
+      constitution: "test",
+      task_definition: { id: "t1", description: "test" },
+      dispatch_mode: "direct" as const,
+    };
+    const result = await adapter.dispatchWithRetry("t1", context, {
+      operation_id: "op:t1:run-1",
+      attempt_id: "op:t1:run-1",
+    });
+
+    expect(callCount).toBe(3); // retried until success
+    expect(result.status).toBe("COMPLETED");
+  });
+});
+
+// ─── T016: Manifest idempotency ─────────────────────────────────────────────
+
+describe("ManifestWriter: idempotency", () => {
+  it("writing manifest twice produces identical output", () => {
+    const dir = "/tmp/ai-sdd-manifest-idempotent-" + Date.now();
+    mkdirSync(join(dir, ".ai-sdd", "state"), { recursive: true });
+
+    const wf = WorkflowLoader.loadYAML(`
+version: "1"
+name: manifest-idem
+tasks:
+  t1:
+    agent: dev
+    description: Done task
+    outputs:
+      - path: specs/t1.md
+        contract: implementation
+`);
+    const sm = new StateManager(join(dir, ".ai-sdd", "state"), "manifest-idem", dir);
+    sm.initializeTasks(["t1"]);
+    sm.transition("t1", "RUNNING");
+    sm.transition("t1", "COMPLETED", { outputs: [{ path: "specs/t1.md", contract: "implementation" }] });
+
+    const mw = createManifestWriter(dir);
+    const state = sm.getState();
+    mw.writeArtifactManifest(state);
+    const first = require("fs").readFileSync(join(dir, ".ai-sdd", "constitution.md"), "utf-8") as string;
+    mw.writeArtifactManifest(state);
+    const second = require("fs").readFileSync(join(dir, ".ai-sdd", "constitution.md"), "utf-8") as string;
+
+    expect(first).toBe(second);
+    require("fs").rmSync(dir, { recursive: true });
+  });
+
+  it("manifest only includes COMPLETED tasks with outputs", () => {
+    const dir = "/tmp/ai-sdd-manifest-completed-" + Date.now();
+    mkdirSync(join(dir, ".ai-sdd", "state"), { recursive: true });
+
+    const wf = WorkflowLoader.loadYAML(`
+version: "1"
+name: manifest-completed
+tasks:
+  t1:
+    agent: dev
+    description: Done task
+    outputs:
+      - path: specs/t1.md
+  t2:
+    agent: dev
+    description: Pending task
+    depends_on: [t1]
+`);
+    const sm = new StateManager(join(dir, ".ai-sdd", "state"), "manifest-completed", dir);
+    sm.initializeTasks(["t1", "t2"]);
+    sm.transition("t1", "RUNNING");
+    sm.transition("t1", "COMPLETED", { outputs: [{ path: "specs/t1.md" }] });
+    // t2 remains PENDING
+
+    const mw = createManifestWriter(dir);
+    mw.writeArtifactManifest(sm.getState());
+    const content = require("fs").readFileSync(join(dir, ".ai-sdd", "constitution.md"), "utf-8") as string;
+
+    expect(content).toContain("t1");
+    expect(content).not.toContain("t2");
+    require("fs").rmSync(dir, { recursive: true });
+  });
+});

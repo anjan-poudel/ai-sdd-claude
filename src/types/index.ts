@@ -66,7 +66,7 @@ export interface AgentConfig {
   name: string;
   display_name: string;
   version: string;
-  extends?: string | null;
+  extends?: string | null | undefined;
   llm: AgentLLMConfig;
   role: AgentRole;
   commands?: Record<string, string>;
@@ -100,17 +100,29 @@ export interface TaskOverlays {
   };
 }
 
-export interface TaskDefinition {
-  id: string;
+export interface TaskConfig {
   use?: string;
-  agent: string;
-  description: string;
+  agent?: string;
+  description?: string;
   depends_on?: string[];
   outputs?: TaskOutput[];
   exit_conditions?: string[];
   overlays?: TaskOverlays;
   max_rework_iterations?: number;
+  phase?: string;
+  requirement_ids?: string[];
+  acceptance_criteria?: unknown[];
+  scope_excluded?: string[];
   [key: string]: unknown;
+}
+
+export interface ResolvedTaskConfig extends TaskConfig {
+  agent: string;
+  description: string;
+}
+
+export interface TaskDefinition extends ResolvedTaskConfig {
+  id: string;
 }
 
 /** Fields allowed in workflow-level defaults: block. */
@@ -134,7 +146,7 @@ export interface WorkflowConfig {
   name: string;
   description?: string;
   defaults?: WorkflowDefaults;
-  tasks: Record<string, Omit<TaskDefinition, "id">>;
+  tasks: Record<string, ResolvedTaskConfig>;
 }
 
 // ─── State File Types ─────────────────────────────────────────────────────────
@@ -230,6 +242,9 @@ export interface ProjectConfig {
     max_concurrent_tasks?: number;
     cost_budget_per_run_usd?: number;
     cost_enforcement?: CostEnforcement;
+    max_context_tokens?: number;
+    context_warning_threshold_pct?: number;
+    context_hil_threshold_pct?: number;
   };
   overlays?: {
     hil?: {
@@ -304,6 +319,7 @@ export type EventType =
   | "gate.pass"
   | "gate.fail"
   | "confidence.computed"
+  | "context.assembled"
   | "context.warning"
   | "cost.warning"
   | "security.violation"

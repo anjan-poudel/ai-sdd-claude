@@ -183,43 +183,65 @@ function installCodex(projectPath: string): void {
   }
 }
 
+const ROO_MCP_INSTRUCTIONS = `
+## MCP Tool Usage (ai-sdd)
+
+Use the \`ai-sdd\` MCP server tools to drive your workflow:
+
+1. **get_next_task** — get the next ready task(s) (DAG-aware: only unblocked PENDING tasks returned)
+2. **get_constitution** with \`task_id\` — fetch project context and task instructions
+3. Do your work: read files, write artifacts, run commands
+4. **complete_task** with \`task_id\`, \`output_path\`, and \`content\` — submit your output artifact
+5. **get_workflow_status** — check overall progress
+6. **list_hil_items** — check for pending human-in-the-loop approvals
+7. **resolve_hil** (id, notes) or **reject_hil** (id, reason) — respond to HIL requests
+
+Always call get_next_task first to find assigned work. Always call get_constitution before producing output so you have project context.
+`.trim();
+
 /** Role-specific Roo Code mode definitions matching the 6 default ai-sdd agent roles. */
 const ROO_AGENT_MODES = [
   {
     slug: "ai-sdd-ba",
     name: "ai-sdd: Business Analyst",
-    roleDefinition: "You are the ai-sdd Business Analyst agent. Your role is to define requirements, capture stakeholder needs, and produce detailed specification documents. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Business Analyst agent. Your role is to define requirements, capture stakeholder needs, and produce detailed specification documents. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-architect",
     name: "ai-sdd: Architect",
-    roleDefinition: "You are the ai-sdd Architect agent. Your role is to design system architecture, define component boundaries, and produce architecture documentation. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Architect agent. Your role is to design system architecture, define component boundaries, and produce architecture documentation. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-pe",
     name: "ai-sdd: Principal Engineer",
-    roleDefinition: "You are the ai-sdd Principal Engineer agent. Your role is to make high-level technical decisions, review architecture, and ensure engineering standards. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Principal Engineer agent. Your role is to make high-level technical decisions, review architecture, and ensure engineering standards. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-le",
     name: "ai-sdd: Lead Engineer",
-    roleDefinition: "You are the ai-sdd Lead Engineer agent. Your role is to plan implementation, break down tasks, and produce technical specifications for developers. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Lead Engineer agent. Your role is to plan implementation, break down tasks, and produce technical specifications for developers. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-dev",
     name: "ai-sdd: Developer",
-    roleDefinition: "You are the ai-sdd Developer agent. Your role is to implement features, write code, and produce implementation artifacts. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Developer agent. Your role is to implement features, write code, and produce implementation artifacts. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-reviewer",
     name: "ai-sdd: Reviewer",
-    roleDefinition: "You are the ai-sdd Reviewer agent. Your role is to review code and artifacts, identify issues, and produce review reports. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Reviewer agent. Your role is to review code and artifacts, identify issues, and produce review reports. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
 ];
 

@@ -159,10 +159,10 @@ describe("standards: missing file handling", () => {
 describe("standards: CLI --standards arg parsing", () => {
   it('"none" maps to standards_paths=[] (disabled)', () => {
     // Simulates what run.ts does when --standards none is passed
-    const standardsArg = "none";
+    const standardsArg: string | undefined = "none";
     const paths: string[] | undefined = standardsArg === "none"
       ? []
-      : standardsArg.split(",").map((p) => p.trim()).filter(Boolean);
+      : standardsArg.split(",").map((p: string) => p.trim()).filter(Boolean);
 
     expect(paths).toEqual([]);
   });

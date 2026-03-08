@@ -33,7 +33,7 @@ export function computeConfidence(
     type: m.type,
     score: Math.max(0, Math.min(1, m.score)),
     weight: METRIC_WEIGHTS[m.type] ?? 0,
-    detail: m.detail,
+    ...(m.detail !== undefined && { detail: m.detail }),
   }));
 
   const rawScore = computeRaw(evalMetrics);

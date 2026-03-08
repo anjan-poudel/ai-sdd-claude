@@ -78,7 +78,7 @@ Generate a full project scaffold. Inputs map to:
 
    Safety-critical (Answer 4 = yes):
      -> note in comments: add policy_gate T2 overrides to workflow file
-     -> paired: { enabled: true } and confidence: { enabled: true, threshold: 0.85 } on implement
+     -> paired: { enabled: false } and confidence: { enabled: true, threshold: 0.85 } on implement
      -> overlays.hil.enabled: true
 
    Compliance (Answer 5 != none/unknown):

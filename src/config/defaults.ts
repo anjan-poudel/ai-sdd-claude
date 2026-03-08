@@ -5,9 +5,7 @@
 
 import type { ProjectConfig } from "../types/index.ts";
 
-// Note: governance is added to ProjectConfig as an optional field.
-// Required<ProjectConfig> needs all keys, so we cast here.
-export const DEFAULT_CONFIG: Required<ProjectConfig> = {
+export const DEFAULT_CONFIG: ProjectConfig = {
   version: "1",
   workflow: "default-sdd",
   adapter: {
@@ -18,6 +16,9 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
     max_concurrent_tasks: 3,
     cost_budget_per_run_usd: 10.00,
     cost_enforcement: "pause",
+    max_context_tokens: 100000,
+    context_warning_threshold_pct: 80,
+    context_hil_threshold_pct: 95,
   },
   overlays: {
     hil: {
@@ -41,9 +42,6 @@ export const DEFAULT_CONFIG: Required<ProjectConfig> = {
     log_level: "INFO",
   },
   standards: {
-    // undefined paths = auto-discover *.md under standards/ in project root
-    // [] = disabled
-    paths: undefined,
     strict: false,
   },
 };
@@ -56,6 +54,8 @@ export function mergeConfig(
   override: Partial<ProjectConfig>,
 ): ProjectConfig {
   const result: ProjectConfig = { ...base };
+  const resultRecord = result as unknown as Record<string, unknown>;
+  const baseRecord = base as unknown as Record<string, unknown>;
 
   for (const [key, val] of Object.entries(override) as [keyof ProjectConfig, unknown][]) {
     if (
@@ -63,15 +63,15 @@ export function mergeConfig(
       val !== undefined &&
       typeof val === "object" &&
       !Array.isArray(val) &&
-      typeof base[key] === "object" &&
-      base[key] !== null
+      typeof baseRecord[key as string] === "object" &&
+      baseRecord[key as string] !== null
     ) {
-      (result as Record<string, unknown>)[key] = mergeConfig(
-        base[key] as ProjectConfig,
+      resultRecord[key as string] = mergeConfig(
+        baseRecord[key as string] as ProjectConfig,
         val as Partial<ProjectConfig>,
       );
     } else if (val !== undefined) {
-      (result as Record<string, unknown>)[key] = val;
+      resultRecord[key as string] = val;
     }
   }
 

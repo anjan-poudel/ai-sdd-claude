@@ -23,6 +23,9 @@ export interface EngineConfig {
   max_concurrent_tasks?: number;
   cost_budget_per_run_usd?: number;
   cost_enforcement?: "warn" | "pause" | "stop";
+  max_context_tokens?: number;
+  context_warning_threshold_pct?: number;
+  context_hil_threshold_pct?: number;
 }
 
 export interface EngineRunOptions {
@@ -371,6 +374,11 @@ export class Engine {
 
     // ── Assemble context (shared by both normal and HIL resume paths) ──────
     const constitution = this.constitutionResolver.resolveForTask(taskId);
+    this.emitter.emit("constitution.resolved", {
+      task_id: taskId,
+      sources: constitution.sources,
+      warnings: constitution.warnings,
+    });
     const projectPath = this.stateManager.getState().project;
     const context = assembleContext({
       constitution: constitution.content,
@@ -379,6 +387,84 @@ export class Engine {
       dispatch_mode: this.adapter.dispatch_mode,
       project_path: projectPath,
     });
+
+    // ── Context size monitoring ─────────────────────────────────────────────
+    const contextStr = JSON.stringify(context);
+    const estimatedTokens = Math.ceil(contextStr.length / 4);
+    this.emitter.emit("context.assembled", {
+      task_id: taskId,
+      token_count: estimatedTokens,
+    });
+
+    if (this.config.max_context_tokens !== undefined && this.adapter.dispatch_mode === "direct") {
+      const maxTokens = this.config.max_context_tokens;
+      const usagePct = (estimatedTokens / maxTokens) * 100;
+
+      const warnPct = this.config.context_warning_threshold_pct ?? 80;
+      const hilPct = this.config.context_hil_threshold_pct ?? 95;
+
+      if (usagePct >= hilPct) {
+        // Escalate to HIL — context too large for safe dispatch
+        const hilProvider = this.providerChain.find(
+          (p) => p.id === "hil" && p.runtime === "local"
+        ) as (LocalOverlayProvider | undefined);
+        const hilOverlay = hilProvider?.inner;
+
+        if (hilOverlay) {
+          const hilId = crypto.randomUUID();
+          const hilQueue = (hilOverlay as { queue?: { create: (item: unknown) => void } }).queue;
+          if (hilQueue) {
+            hilQueue.create({
+              id: hilId,
+              task_id: taskId,
+              workflow_id: this.workflow.config.name,
+              status: "PENDING" as const,
+              reason: `Context size (${estimatedTokens} tokens, ${usagePct.toFixed(1)}%) exceeds HIL threshold (${hilPct}%) — human review required before dispatch`,
+              context: { token_count: estimatedTokens, max_tokens: maxTokens, usage_pct: usagePct },
+              created_at: new Date().toISOString(),
+            });
+          }
+
+          this.emitter.emit("hil.created", {
+            hil_id: hilId,
+            task_id: taskId,
+            reason: `Context size exceeds HIL threshold (${hilPct}%)`,
+          });
+
+          this.stateManager.transition(taskId, "HIL_PENDING", { hil_item_id: hilId });
+          this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
+
+          const waitResult = hilOverlay.awaitResolution
+            ? await hilOverlay.awaitResolution(hilId)
+            : { proceed: false, feedback: "HIL overlay unavailable" };
+
+          if (!waitResult.proceed) {
+            this.stateManager.transition(taskId, "FAILED", {
+              error: waitResult.feedback ?? "Context HIL rejected",
+            });
+            this.emitter.emit("task.failed", {
+              task_id: taskId,
+              error: waitResult.feedback ?? "Context HIL rejected",
+            });
+            return "FAILED";
+          }
+          this.stateManager.transition(taskId, "RUNNING");
+        } else {
+          // HIL overlay unavailable — emit warning and continue
+          this.emitter.emit("context.warning", {
+            task_id: taskId,
+            usage_pct: usagePct,
+            threshold_pct: hilPct,
+          });
+        }
+      } else if (usagePct >= warnPct) {
+        this.emitter.emit("context.warning", {
+          task_id: taskId,
+          usage_pct: usagePct,
+          threshold_pct: warnPct,
+        });
+      }
+    }
 
     // ── Cost budget check ───────────────────────────────────────────────────
     if (this.config.cost_budget_per_run_usd !== undefined) {
