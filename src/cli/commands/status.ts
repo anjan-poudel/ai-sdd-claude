@@ -41,6 +41,12 @@ function resolveWorkflowName(
   return "workflow";
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}s`;
+}
+
 const STATUS_SYMBOLS: Record<TaskStatus, string> = {
   PENDING: "○",
   RUNNING: "◉",
@@ -130,11 +136,15 @@ export function registerStatusCommand(program: Command): void {
 
       const tasks = Object.entries(state.tasks);
       const maxIdLen = Math.max(...tasks.map(([id]) => id.length), 10);
+      const showMetrics = Boolean(options.metrics);
 
-      console.log(
-        `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed`,
-      );
-      console.log("─".repeat(maxIdLen + 40));
+      const header = showMetrics
+        ? `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed   Tokens      Cost`
+        : `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed`;
+      const ruleLen = showMetrics ? maxIdLen + 58 : maxIdLen + 40;
+
+      console.log(header);
+      console.log("─".repeat(ruleLen));
 
       for (const [id, taskState] of tasks) {
         const symbol = STATUS_SYMBOLS[taskState.status];
@@ -143,7 +153,20 @@ export function registerStatusCommand(program: Command): void {
         const completedStr = taskState.completed_at
           ? taskState.completed_at.substring(0, 10)
           : "—";
-        console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}`);
+        if (showMetrics) {
+          const dur = taskState.started_at && taskState.completed_at
+            ? formatDuration(Date.parse(taskState.completed_at) - Date.parse(taskState.started_at))
+            : "—";
+          const tokens = taskState.tokens_used
+            ? String(taskState.tokens_used.total).padStart(8)
+            : "       —";
+          const cost = taskState.cost_usd !== undefined
+            ? `$${taskState.cost_usd.toFixed(4)}`.padStart(9)
+            : "        —";
+          console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}  ${dur.padEnd(5)}  ${tokens}  ${cost}`);
+        } else {
+          console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}`);
+        }
       }
 
       const completed = tasks.filter(([, s]) => s.status === "COMPLETED").length;
@@ -151,7 +174,14 @@ export function registerStatusCommand(program: Command): void {
       const pending = tasks.filter(([, s]) => s.status === "PENDING").length;
       const cancelled = tasks.filter(([, s]) => s.status === "CANCELLED").length;
 
-      console.log("\n" + "─".repeat(maxIdLen + 40));
-      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled}`);
+      console.log("\n" + "─".repeat(ruleLen));
+
+      if (showMetrics) {
+        const totalTokens = tasks.reduce((sum, [, s]) => sum + (s.tokens_used?.total ?? 0), 0);
+        const totalCost = tasks.reduce((sum, [, s]) => sum + (s.cost_usd ?? 0), 0);
+        console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled} | tokens: ${totalTokens} | cost: $${totalCost.toFixed(4)}`);
+      } else {
+        console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled}`);
+      }
     });
 }

@@ -173,6 +173,9 @@ export interface TaskState {
   hil_item_id?: string;
   error?: string;
   overlay_evidence?: import("./overlay-protocol.ts").OverlayEvidence;
+  /** Persisted after successful completion for status --metrics. */
+  tokens_used?: TokenUsage;
+  cost_usd?: number;
 }
 
 export interface WorkflowState {

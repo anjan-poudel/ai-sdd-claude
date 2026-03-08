@@ -11,7 +11,7 @@
  * Role switch modes:
  *   "session"     — driver/challenger stay fixed for the entire workflow session
  *   "subtask"     — roles swap after each subtask (every challenger approval or rejection)
- *   "checkpoint"  — roles swap at explicit checkpoint markers (not yet implemented; behaves like session)
+ *   "checkpoint"  — roles swap at the end of each full review cycle (approval or max_iterations); stable within a cycle
  */
 
 import type { BaseOverlay, OverlayContext, PostTaskOverlayResult } from "../base-overlay.ts";
@@ -111,7 +111,8 @@ export class PairedOverlay implements BaseOverlay {
     });
 
     if (approved) {
-      if (roleSwitch === "subtask") session.switchRoles();
+      // subtask: swap after every approval; checkpoint: swap when the full review cycle ends
+      if (roleSwitch === "subtask" || roleSwitch === "checkpoint") session.switchRoles();
       return {
         accept: true,
         new_status: "COMPLETED",
@@ -122,6 +123,9 @@ export class PairedOverlay implements BaseOverlay {
     // Challenger rejected — check iteration budget
     if (currentIteration >= maxIterations) {
       // Max iterations reached without approval — escalate to HIL
+      // checkpoint: swap roles so the next task run starts with fresh perspective
+      if (roleSwitch === "checkpoint") session.switchRoles();
+
       this.emitter.emit("paired.max_iterations_reached", {
         task_id: ctx.task_id,
         iterations: currentIteration,
@@ -137,6 +141,7 @@ export class PairedOverlay implements BaseOverlay {
       };
     }
 
+    // subtask: swap after every rejection too; checkpoint: no swap mid-cycle
     if (roleSwitch === "subtask") session.switchRoles();
 
     return {

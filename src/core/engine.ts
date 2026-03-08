@@ -582,7 +582,14 @@ export class Engine {
 
     // ── COMPLETED ───────────────────────────────────────────────────────────
     const outputs: TaskOutput[] = adapterOutputs;
-    this.stateManager.transition(taskId, "COMPLETED", { outputs });
+    const completionUpdates: { outputs: TaskOutput[]; tokens_used?: typeof result.tokens_used; cost_usd?: number } = { outputs };
+    if (result.tokens_used) {
+      completionUpdates.tokens_used = result.tokens_used;
+      if (result.tokens_used.cost_usd !== undefined) {
+        completionUpdates.cost_usd = result.tokens_used.cost_usd;
+      }
+    }
+    this.stateManager.transition(taskId, "COMPLETED", completionUpdates);
 
     if (result.handover_state) {
       this.handoverState = mergeHandoverState(
