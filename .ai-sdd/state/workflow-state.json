@@ -2,13 +2,13 @@
   "schema_version": "1",
   "workflow": "default-sdd",
   "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude",
-  "started_at": "2026-03-07T07:51:19.725Z",
-  "updated_at": "2026-03-07T09:02:33.159Z",
+  "started_at": "2026-03-08T03:26:49.041Z",
+  "updated_at": "2026-03-08T03:26:49.057Z",
   "tasks": {
     "define-requirements": {
-      "status": "FAILED",
-      "started_at": "2026-03-07T07:51:19.731Z",
-      "completed_at": "2026-03-07T09:02:33.159Z",
+      "status": "HIL_PENDING",
+      "started_at": "2026-03-08T03:26:49.048Z",
+      "completed_at": null,
       "outputs": [],
       "iterations": 1,
       "hil_item_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4",
@@ -18,8 +18,7 @@
         "data": {
           "hil_id": "a2fbbf26-88ba-487c-870a-7506e53e5ce4"
         }
-      },
-      "error": "HIL timeout: HIL item 'a2fbbf26-88ba-487c-870a-7506e53e5ce4' timed out after 3600000ms"
+      }
     },
     "design-l1": {
       "status": "PENDING",
