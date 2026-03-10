@@ -513,12 +513,12 @@ export class WorkflowLoader {
         }
       }
 
-      // Traceability overlay: evaluator_agent must differ from task agent
-      if (task.overlays?.traceability?.enabled) {
-        const traceEvaluator = task.overlays.traceability.evaluator_agent;
-        if (traceEvaluator && traceEvaluator === task.agent) {
+      // Traceability overlay: if evaluator_agent is explicitly set, it must differ from task agent.
+      // If omitted, auto-resolves to "reviewer" at runtime (TraceabilityOverlay.resolveEvaluator).
+      if (task.overlays?.traceability?.enabled && task.overlays.traceability.evaluator_agent) {
+        if (task.overlays.traceability.evaluator_agent === task.agent) {
           throw new Error(
-            `Task '${taskId}': traceability evaluator_agent ('${traceEvaluator}') must differ from task agent ('${task.agent}'). An agent cannot evaluate its own output scope.`,
+            `Task '${taskId}': traceability evaluator_agent ('${task.overlays.traceability.evaluator_agent}') must differ from task agent ('${task.agent}'). An agent cannot evaluate its own output scope.`,
           );
         }
       }

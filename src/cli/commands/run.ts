@@ -218,7 +218,7 @@ export function registerRunCommand(program: Command): void {
           policy_gate: new PolicyGateOverlay(outputsDir, emitter),
           review: new ReviewOverlay(emitter, { enabled: false }, adapter, session.reviewLogsDir),
           paired: new PairedOverlay(emitter, { enabled: false }, adapter, session.pairSessionsDir),
-          traceability: new TraceabilityOverlay(emitter, { enabled: false }, adapter),
+          traceability: new TraceabilityOverlay(emitter, {}, adapter),
           confidence: new ConfidenceOverlay(emitter, {}, adapter),
         },
         ...(remoteConfig !== undefined && { remoteConfig }),

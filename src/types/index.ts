@@ -154,7 +154,7 @@ export const ENGINE_TASK_DEFAULTS: WorkflowDefaults = {
   overlays: {
     hil:         { enabled: true },
     policy_gate: { risk_tier: "T1" },
-    traceability: { enabled: false },
+    traceability: { enabled: true },
   },
   max_rework_iterations: 3,
 };

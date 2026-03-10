@@ -92,12 +92,16 @@ function createTempLockFile(): { dir: string; lockPath: string } {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("TraceabilityOverlay: enabled/disabled", () => {
-  it("enabled: false → accept: true (skip)", async () => {
+  it("enabled defaults to true", () => {
+    const { emitter } = makeEmitter();
+    const overlay = new TraceabilityOverlay(emitter);
+    expect(overlay.enabled).toBe(true);
+  });
+
+  it("enabled: false → overlay disabled", () => {
     const { emitter } = makeEmitter();
     const overlay = new TraceabilityOverlay(emitter, { enabled: false });
     expect(overlay.enabled).toBe(false);
-    // postTask should still work but overlay is flagged as disabled
-    // The overlay chain runner checks .enabled before calling postTask
   });
 });
 
@@ -106,8 +110,8 @@ describe("TraceabilityOverlay: lock file handling", () => {
     const { emitter, events } = makeEmitter();
     const adapter = makeMockAdapter({ handover_state: { in_scope: true, findings: [] } });
     const overlay = new TraceabilityOverlay(emitter, {
-      enabled: true,
       lockFilePath: "/nonexistent/path/requirements.lock.yaml",
+      evaluator_agent: "reviewer",
     }, adapter);
 
     const result = await overlay.postTask(makeCtx(), makeResult());
@@ -126,8 +130,8 @@ describe("TraceabilityOverlay: no adapter", () => {
     try {
       const { emitter, events } = makeEmitter();
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
+        evaluator_agent: "reviewer",
       }); // no adapter
 
       const result = await overlay.postTask(makeCtx(), makeResult());
@@ -136,6 +140,81 @@ describe("TraceabilityOverlay: no adapter", () => {
       const skippedEvent = events.find((e) => e.type === "traceability.skipped");
       expect(skippedEvent).toBeDefined();
       expect(skippedEvent?.data["reason"]).toBe("no adapter available");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("TraceabilityOverlay: auto-resolve evaluator_agent", () => {
+  it("no evaluator_agent set → auto-resolves to 'reviewer'", async () => {
+    const { dir, lockPath } = createTempLockFile();
+    try {
+      const { emitter, events } = makeEmitter();
+      const adapter = makeMockAdapter({
+        handover_state: { in_scope: true, findings: [] },
+      });
+      // No evaluator_agent — should auto-resolve to "reviewer"
+      const overlay = new TraceabilityOverlay(emitter, {
+        lockFilePath: lockPath,
+      }, adapter);
+
+      const result = await overlay.postTask(makeCtx({ agent: "developer" }), makeResult());
+      expect(result.accept).toBe(true);
+
+      const evalEvent = events.find((e) => e.type === "traceability.evaluated");
+      expect(evalEvent).toBeDefined();
+      expect(evalEvent?.data["evaluator_agent"]).toBe("reviewer");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("task agent is 'reviewer' + no explicit evaluator → skips self-evaluation", async () => {
+    const { dir, lockPath } = createTempLockFile();
+    try {
+      const { emitter, events } = makeEmitter();
+      const adapter = makeMockAdapter({
+        handover_state: { in_scope: true, findings: [] },
+      });
+      const overlay = new TraceabilityOverlay(emitter, {
+        lockFilePath: lockPath,
+      }, adapter);
+
+      // Task agent is "reviewer" — auto-resolved evaluator would also be "reviewer" → skip
+      const result = await overlay.postTask(makeCtx({ agent: "reviewer", phase: "implement" }), makeResult());
+      expect(result.accept).toBe(true);
+
+      const skippedEvent = events.find((e) => e.type === "traceability.skipped");
+      expect(skippedEvent).toBeDefined();
+      expect(String(skippedEvent?.data["reason"])).toContain("same as task agent");
+
+      // Should NOT have dispatched the judge
+      const evalEvent = events.find((e) => e.type === "traceability.evaluated");
+      expect(evalEvent).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("explicit evaluator_agent overrides auto-resolve", async () => {
+    const { dir, lockPath } = createTempLockFile();
+    try {
+      const { emitter, events } = makeEmitter();
+      const adapter = makeMockAdapter({
+        handover_state: { in_scope: true, findings: [] },
+      });
+      const overlay = new TraceabilityOverlay(emitter, {
+        lockFilePath: lockPath,
+        evaluator_agent: "architect",
+      }, adapter);
+
+      const result = await overlay.postTask(makeCtx({ agent: "developer" }), makeResult());
+      expect(result.accept).toBe(true);
+
+      const evalEvent = events.find((e) => e.type === "traceability.evaluated");
+      expect(evalEvent).toBeDefined();
+      expect(evalEvent?.data["evaluator_agent"]).toBe("architect");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -151,7 +230,6 @@ describe("TraceabilityOverlay: LLM judge results", () => {
         handover_state: { in_scope: true, findings: ["All outputs traced to FR-001"] },
       });
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
         evaluator_agent: "reviewer",
       }, adapter);
@@ -181,7 +259,6 @@ describe("TraceabilityOverlay: LLM judge results", () => {
         },
       });
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
         evaluator_agent: "reviewer",
       }, adapter);
@@ -209,7 +286,6 @@ describe("TraceabilityOverlay: judge failure handling", () => {
       const { emitter, events } = makeEmitter();
       const adapter = makeMockAdapter({ fail: true, failError: "Judge agent crashed" });
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
         evaluator_agent: "reviewer",
       }, adapter);
@@ -236,8 +312,8 @@ describe("TraceabilityOverlay: phase filtering", () => {
         handover_state: { in_scope: false, findings: ["Should not reach judge"] },
       });
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
+        evaluator_agent: "reviewer",
       }, adapter);
 
       const result = await overlay.postTask(makeCtx({ phase: "review" }), makeResult());
@@ -256,8 +332,8 @@ describe("TraceabilityOverlay: phase filtering", () => {
         handover_state: { in_scope: true, findings: [] },
       });
       const overlay = new TraceabilityOverlay(emitter, {
-        enabled: true,
         lockFilePath: lockPath,
+        evaluator_agent: "reviewer",
       }, adapter);
 
       const result = await overlay.postTask(makeCtx({ phase: "design" }), makeResult());
@@ -272,8 +348,7 @@ describe("TraceabilityOverlay: phase filtering", () => {
 });
 
 describe("TraceabilityOverlay: workflow-loader validation", () => {
-  it("evaluator_agent same as task agent → workflow-loader rejects", async () => {
-    // This tests the workflow-loader validation, not the overlay itself
+  it("explicit evaluator_agent same as task agent → workflow-loader rejects", async () => {
     const { WorkflowLoader } = await import("../../../src/core/workflow-loader.ts");
     const yamlStr = `
 version: "1"
@@ -290,5 +365,22 @@ tasks:
     expect(() => WorkflowLoader.loadYAML(yamlStr)).toThrow(
       /traceability evaluator_agent.*must differ from task agent/
     );
+  });
+
+  it("no evaluator_agent → workflow-loader accepts (auto-resolved at runtime)", async () => {
+    const { WorkflowLoader } = await import("../../../src/core/workflow-loader.ts");
+    const yamlStr = `
+version: "1"
+name: test-wf
+tasks:
+  design-l1:
+    agent: developer
+    description: Design architecture
+    overlays:
+      traceability:
+        enabled: true
+`;
+    // Should not throw — evaluator_agent is optional, auto-resolved to "reviewer" at runtime
+    expect(() => WorkflowLoader.loadYAML(yamlStr)).not.toThrow();
   });
 });

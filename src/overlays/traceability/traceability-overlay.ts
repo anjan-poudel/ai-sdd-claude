@@ -16,6 +16,7 @@ import { readFileSync, existsSync } from "fs";
 
 const TRACEABILITY_PHASES = ["design", "implement"];
 const DEFAULT_LOCK_PATH = "specs/define-requirements.lock.yaml";
+const DEFAULT_EVALUATOR_AGENT = "reviewer";
 
 export interface TraceabilityJudgeResult {
   in_scope: boolean;
@@ -26,16 +27,27 @@ export class TraceabilityOverlay implements BaseOverlay {
   readonly name = "traceability";
   readonly enabled: boolean;
   private readonly lockFilePath: string;
-  private readonly evaluatorAgent: string;
+  /** Explicit override; empty string means "auto-resolve at runtime". */
+  private readonly explicitEvaluator: string;
 
   constructor(
     private readonly emitter: ObservabilityEmitter,
     options: { enabled?: boolean; lockFilePath?: string; evaluator_agent?: string } = {},
     private readonly adapter?: RuntimeAdapter,
   ) {
-    this.enabled = options.enabled ?? false;
+    this.enabled = options.enabled ?? true;
     this.lockFilePath = options.lockFilePath ?? DEFAULT_LOCK_PATH;
-    this.evaluatorAgent = options.evaluator_agent ?? "reviewer";
+    this.explicitEvaluator = options.evaluator_agent ?? "";
+  }
+
+  /**
+   * Resolve evaluator agent for a given task.
+   * Explicit config wins; otherwise defaults to "reviewer".
+   * Returns empty string if the resolved agent equals the task agent (self-evaluation).
+   */
+  private resolveEvaluator(taskAgent: string): string {
+    const agent = this.explicitEvaluator || DEFAULT_EVALUATOR_AGENT;
+    return agent === taskAgent ? "" : agent;
   }
 
   async postTask(
@@ -58,6 +70,16 @@ export class TraceabilityOverlay implements BaseOverlay {
       return { accept: true, new_status: "COMPLETED" };
     }
 
+    // Resolve evaluator — auto-resolve to "reviewer" unless explicitly set
+    const evaluatorAgent = this.resolveEvaluator(ctx.task_definition.agent);
+    if (!evaluatorAgent) {
+      this.emitter.emit("traceability.skipped", {
+        task_id: ctx.task_id,
+        reason: `auto-resolved evaluator '${DEFAULT_EVALUATOR_AGENT}' is the same as task agent — skipping self-evaluation`,
+      });
+      return { accept: true, new_status: "COMPLETED" };
+    }
+
     // No adapter → skip silently (same pattern as ConfidenceOverlay)
     if (!this.adapter) {
       this.emitter.emit("traceability.skipped", {
@@ -69,13 +91,13 @@ export class TraceabilityOverlay implements BaseOverlay {
 
     // Dispatch LLM judge
     try {
-      const judgeResult = await this.runLLMJudge(ctx, result, lockContent);
+      const judgeResult = await this.runLLMJudge(ctx, result, lockContent, evaluatorAgent);
 
       this.emitter.emit("traceability.evaluated", {
         task_id: ctx.task_id,
         in_scope: judgeResult.in_scope,
         findings: judgeResult.findings,
-        evaluator_agent: this.evaluatorAgent,
+        evaluator_agent: evaluatorAgent,
       });
 
       if (!judgeResult.in_scope) {
@@ -120,6 +142,7 @@ export class TraceabilityOverlay implements BaseOverlay {
     ctx: OverlayContext,
     result: TaskResult,
     lockContent: string,
+    evaluatorAgent: string,
   ): Promise<TraceabilityJudgeResult> {
     const judgeInstruction = [
       `You are a traceability evaluator. Given:`,
@@ -145,20 +168,20 @@ export class TraceabilityOverlay implements BaseOverlay {
       constitution: judgeInstruction,
       task_definition: {
         ...ctx.task_definition,
-        agent: this.evaluatorAgent,
+        agent: evaluatorAgent,
         description: `Evaluate traceability of task '${ctx.task_id}' output against requirements lock`,
       },
     };
 
     const options: DispatchOptions = {
-      operation_id: `${ctx.workflow_id}:${ctx.task_id}:traceability:${this.evaluatorAgent}`,
-      attempt_id: `${ctx.workflow_id}:${ctx.task_id}:traceability:${this.evaluatorAgent}:${Date.now()}`,
+      operation_id: `${ctx.workflow_id}:${ctx.task_id}:traceability:${evaluatorAgent}`,
+      attempt_id: `${ctx.workflow_id}:${ctx.task_id}:traceability:${evaluatorAgent}:${Date.now()}`,
     };
 
-    const judgeResult = await this.adapter!.dispatch(this.evaluatorAgent, judgeContext, options);
+    const judgeResult = await this.adapter!.dispatch(evaluatorAgent, judgeContext, options);
 
     if (judgeResult.status === "FAILED") {
-      throw new Error(`Traceability judge '${this.evaluatorAgent}' returned FAILED: ${judgeResult.error ?? "unknown"}`);
+      throw new Error(`Traceability judge '${evaluatorAgent}' returned FAILED: ${judgeResult.error ?? "unknown"}`);
     }
 
     // Parse result from handover_state
@@ -184,6 +207,6 @@ export class TraceabilityOverlay implements BaseOverlay {
       }
     } catch { /* ignore */ }
 
-    throw new Error(`Traceability judge '${this.evaluatorAgent}' did not return a parseable result`);
+    throw new Error(`Traceability judge '${evaluatorAgent}' did not return a parseable result`);
   }
 }
