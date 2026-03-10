@@ -3,9 +3,11 @@ agent: architect
 description: |
   Produce the L1 system architecture document. Define system components,
   technology stack, integration points, and key architectural decisions.
+  Consult the requirements lock file (specs/<requirements-task-id>.lock.yaml)
+  to ensure the architecture covers all locked FRs and NFRs.
 overlays:
   hil:         { enabled: true }    # architecture typically needs review before proceeding
   policy_gate: { risk_tier: T0 }    # acceptance: document must be present
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}.md"
+  - path: "specs/{{task_id}}.md"
     contract: architecture_l1

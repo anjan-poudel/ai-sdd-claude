@@ -73,3 +73,40 @@ contracts:
     sections:
       - Evidence Checklist
       - HIL Sign-Off
+
+  requirements_lock:
+    name: requirements_lock
+    version: "1"
+    description: |
+      Immutable requirements snapshot produced by the BA agent after stakeholder sign-off.
+      YAML format. Records spec_hash, locked FR/NFR list, acceptance criteria hashes,
+      assumptions, and constraints. Downstream tasks consume this file to detect drift.
+    fields:
+      spec_hash:
+        required: true
+        type: string
+        description: "SHA-256 of the normalized requirements content at lock time"
+      locked_at:
+        required: true
+        type: string
+        description: "ISO 8601 timestamp of lock"
+      requirements:
+        required: true
+        type: array
+        description: "List of locked FR/NFR identifiers with their content hashes"
+
+  spec_hash:
+    name: spec_hash
+    version: "1"
+    description: |
+      Lightweight hash artifact produced by any phase that needs to declare a stable
+      content fingerprint for drift detection. Used by coding-standards gate validators.
+    fields:
+      hash:
+        required: true
+        type: string
+        description: "SHA-256 content hash"
+      source_paths:
+        required: true
+        type: array
+        description: "Paths that were hashed to produce this value"

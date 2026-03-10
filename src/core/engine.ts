@@ -14,13 +14,18 @@ import { HookRegistry } from "./hooks.ts";
 import { assembleContext, mergeHandoverState } from "./context-manager.ts";
 import { ObservabilityEmitter } from "../observability/emitter.ts";
 import { CostTracker } from "../observability/cost-tracker.ts";
-import type { OverlayChain, OverlayContext } from "../overlays/base-overlay.ts";
-import { runPreTaskChain, runPostTaskChain } from "../overlays/base-overlay.ts";
+import type { OverlayProvider, OverlayDecision, OverlayVerdict, OverlayContext } from "../types/overlay-protocol.ts";
+import { runPreProviderChain, runPostProviderChain } from "../overlays/provider-chain.ts";
+import type { LocalOverlayProvider } from "../overlays/local-overlay-provider.ts";
+import { validateAdapterOutputs } from "../security/output-validator.ts";
 
 export interface EngineConfig {
   max_concurrent_tasks?: number;
   cost_budget_per_run_usd?: number;
   cost_enforcement?: "warn" | "pause" | "stop";
+  max_context_tokens?: number;
+  context_warning_threshold_pct?: number;
+  context_hil_threshold_pct?: number;
 }
 
 export interface EngineRunOptions {
@@ -83,7 +88,7 @@ export class Engine {
     private readonly manifestWriter: ManifestWriter,
     private readonly emitter: ObservabilityEmitter,
     private readonly config: EngineConfig = {},
-    private readonly overlayChain: OverlayChain = [],
+    private readonly providerChain: OverlayProvider[] = [],
   ) {
     this.hooks = new HookRegistry();
     this.costTracker = new CostTracker();
@@ -239,61 +244,113 @@ export class Engine {
     const operation_id = `${this.workflow.config.name}:${taskId}:${taskRunId}`;
     const attempt_id = `${operation_id}:attempt_${iteration}`;
 
-    // Pre-task hook (non-overlay lifecycle hook)
-    const taskState = this.stateManager.getTaskState(taskId);
-    await this.hooks.run("pre_task", {
-      task_id: taskId,
-      workflow_id: this.workflow.config.name,
-      run_id: this.runId,
-      task_state: taskState,
-    });
+    // ── HIL resume path ──────────────────────────────────────────────────
+    // If the task is already HIL_PENDING (loaded from persisted state on --resume),
+    // skip pre-overlays and go directly to awaitResolution. This prevents the state
+    // machine reset bug where HIL_PENDING → RUNNING → pre-overlays → new HIL item.
+    const currentState = this.stateManager.getTaskState(taskId);
+    if (currentState.status === "HIL_PENDING") {
+      const hilItemId = currentState.hil_item_id;
+      if (!hilItemId) {
+        this.stateManager.transition(taskId, "FAILED", {
+          error: "HIL_PENDING task has no hil_item_id — cannot resume",
+        });
+        this.emitter.emit("task.failed", {
+          task_id: taskId,
+          error: "HIL_PENDING task has no hil_item_id — cannot resume",
+        });
+        return "FAILED";
+      }
 
-    // Transition to RUNNING
-    this.stateManager.transition(taskId, "RUNNING");
-    this.stateManager.incrementIteration(taskId);
+      this.emitter.emit("task.hil_resuming", {
+        task_id: taskId,
+        hil_id: hilItemId,
+      });
 
-    this.emitter.emit("task.started", {
-      task_id: taskId,
-      agent: taskDef.agent,
-      operation_id,
-      attempt_id,
-      iteration,
-    });
+      const hilProvider = this.providerChain.find(
+        (p) => p.id === "hil" && p.runtime === "local"
+      ) as (LocalOverlayProvider | undefined);
+      const hilOverlay = hilProvider?.inner;
 
-    // Assemble context (includes project_path for direct-mode adapters that write files)
-    const constitution = this.constitutionResolver.resolveForTask(taskId);
-    const projectPath = this.stateManager.getState().project;
-    const context = assembleContext({
-      constitution: constitution.content,
-      handover_state: this.handoverState,
-      task_definition: taskDef,
-      dispatch_mode: this.adapter.dispatch_mode,
-      project_path: projectPath,
-    });
+      const waitResult = hilOverlay?.awaitResolution
+        ? await hilOverlay.awaitResolution(hilItemId)
+        : { proceed: false, feedback: "HIL overlay unavailable" };
 
-    // ── Pre-task overlay chain ──────────────────────────────────────────────
-    if (this.overlayChain.length > 0) {
-      const overlayCtx: OverlayContext = {
+      if (!waitResult.proceed) {
+        this.stateManager.transition(taskId, "FAILED", {
+          error: waitResult.feedback ?? "HIL rejected",
+        });
+        this.emitter.emit("task.failed", {
+          task_id: taskId,
+          error: waitResult.feedback ?? "HIL rejected",
+        });
+        return "FAILED";
+      }
+
+      // HIL resolved — transition to RUNNING and fall through to dispatch
+      this.stateManager.transition(taskId, "RUNNING");
+      // Do NOT incrementIteration — the iteration already started before HIL
+    } else {
+      // ── Normal (non-HIL-resume) path ─────────────────────────────────────
+
+      // Pre-task hook (non-overlay lifecycle hook)
+      const taskState = this.stateManager.getTaskState(taskId);
+      await this.hooks.run("pre_task", {
         task_id: taskId,
         workflow_id: this.workflow.config.name,
         run_id: this.runId,
-        task_definition: taskDef,
-        agent_context: context,
-      };
+        task_state: taskState,
+      });
 
-      const preResult = await runPreTaskChain(this.overlayChain, overlayCtx);
+      // Transition to RUNNING.
+      // If the task was re-armed to RUNNING by a previous REWORK verdict, skip the
+      // redundant transition (RUNNING → RUNNING is not a valid state machine move).
+      if (currentState.status !== "RUNNING") {
+        this.stateManager.transition(taskId, "RUNNING");
+      }
+      this.stateManager.incrementIteration(taskId);
 
-      if (!preResult.proceed) {
-        if (preResult.hil_trigger) {
-          // HIL gating: transition to HIL_PENDING, then wait for human resolution
-          const hilId = preResult.data?.["hil_id"] as string | undefined;
-          this.stateManager.transition(taskId, "HIL_PENDING", {
-            ...(hilId !== undefined && { hil_item_id: hilId }),
-          });
-          this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
+      this.emitter.emit("task.started", {
+        task_id: taskId,
+        agent: taskDef.agent,
+        operation_id,
+        attempt_id,
+        iteration,
+      });
 
-          // Delegate the wait to the HIL overlay (it knows poll interval + queue)
-          const hilOverlay = this.overlayChain.find((o) => o.name === "hil");
+      // ── Pre-task overlay chain ──────────────────────────────────────────
+      if (this.providerChain.length > 0) {
+        // Assemble context early — needed for overlay chain
+        const constitution = this.constitutionResolver.resolveForTask(taskId);
+        const projectPath = this.stateManager.getState().project;
+        const overlayContext = assembleContext({
+          constitution: constitution.content,
+          handover_state: this.handoverState,
+          task_definition: taskDef,
+          dispatch_mode: this.adapter.dispatch_mode,
+          project_path: projectPath,
+        });
+
+        const overlayCtx: OverlayContext = {
+          task_id: taskId,
+          workflow_id: this.workflow.config.name,
+          run_id: this.runId,
+          task_definition: taskDef,
+          agent_context: overlayContext,
+        };
+
+        const preDecision = await runPreProviderChain(this.providerChain, overlayCtx);
+
+        const preResult = await this.applyPreDecision(taskId, preDecision, iteration);
+        if (preResult === "NEEDS_REWORK") return "NEEDS_REWORK";
+        if (preResult === "FAILED") return "FAILED";
+        if (preResult === "HIL_AWAITING") {
+          // HIL: find the local HIL provider's inner overlay for awaitResolution
+          const hilProvider = this.providerChain.find(
+            (p) => p.id === "hil" && p.runtime === "local"
+          ) as (LocalOverlayProvider | undefined);
+          const hilOverlay = hilProvider?.inner;
+          const hilId = preDecision.evidence?.data?.["hil_id"] as string | undefined;
           const waitResult = hilOverlay?.awaitResolution && hilId
             ? await hilOverlay.awaitResolution(hilId)
             : { proceed: false, feedback: "HIL overlay unavailable or hil_id missing" };
@@ -308,22 +365,104 @@ export class Engine {
             });
             return "FAILED";
           }
+          // HIL resolved — re-arm to RUNNING
+          this.stateManager.transition(taskId, "RUNNING");
+        }
+        // preResult === "CONTINUE" — proceed to dispatch
+      }
+    }
 
-          // HIL resolved — re-arm to RUNNING and continue to dispatch
+    // ── Assemble context (shared by both normal and HIL resume paths) ──────
+    const constitution = this.constitutionResolver.resolveForTask(taskId);
+    this.emitter.emit("constitution.resolved", {
+      task_id: taskId,
+      sources: constitution.sources,
+      warnings: constitution.warnings,
+    });
+    const projectPath = this.stateManager.getState().project;
+    const context = assembleContext({
+      constitution: constitution.content,
+      handover_state: this.handoverState,
+      task_definition: taskDef,
+      dispatch_mode: this.adapter.dispatch_mode,
+      project_path: projectPath,
+    });
+
+    // ── Context size monitoring ─────────────────────────────────────────────
+    const contextStr = JSON.stringify(context);
+    const estimatedTokens = Math.ceil(contextStr.length / 4);
+    this.emitter.emit("context.assembled", {
+      task_id: taskId,
+      token_count: estimatedTokens,
+    });
+
+    if (this.config.max_context_tokens !== undefined && this.adapter.dispatch_mode === "direct") {
+      const maxTokens = this.config.max_context_tokens;
+      const usagePct = (estimatedTokens / maxTokens) * 100;
+
+      const warnPct = this.config.context_warning_threshold_pct ?? 80;
+      const hilPct = this.config.context_hil_threshold_pct ?? 95;
+
+      if (usagePct >= hilPct) {
+        // Escalate to HIL — context too large for safe dispatch
+        const hilProvider = this.providerChain.find(
+          (p) => p.id === "hil" && p.runtime === "local"
+        ) as (LocalOverlayProvider | undefined);
+        const hilOverlay = hilProvider?.inner;
+
+        if (hilOverlay) {
+          const hilId = crypto.randomUUID();
+          const hilQueue = (hilOverlay as { queue?: { create: (item: unknown) => void } }).queue;
+          if (hilQueue) {
+            hilQueue.create({
+              id: hilId,
+              task_id: taskId,
+              workflow_id: this.workflow.config.name,
+              status: "PENDING" as const,
+              reason: `Context size (${estimatedTokens} tokens, ${usagePct.toFixed(1)}%) exceeds HIL threshold (${hilPct}%) — human review required before dispatch`,
+              context: { token_count: estimatedTokens, max_tokens: maxTokens, usage_pct: usagePct },
+              created_at: new Date().toISOString(),
+            });
+          }
+
+          this.emitter.emit("hil.created", {
+            hil_id: hilId,
+            task_id: taskId,
+            reason: `Context size exceeds HIL threshold (${hilPct}%)`,
+          });
+
+          this.stateManager.transition(taskId, "HIL_PENDING", { hil_item_id: hilId });
+          this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
+
+          const waitResult = hilOverlay.awaitResolution
+            ? await hilOverlay.awaitResolution(hilId)
+            : { proceed: false, feedback: "HIL overlay unavailable" };
+
+          if (!waitResult.proceed) {
+            this.stateManager.transition(taskId, "FAILED", {
+              error: waitResult.feedback ?? "Context HIL rejected",
+            });
+            this.emitter.emit("task.failed", {
+              task_id: taskId,
+              error: waitResult.feedback ?? "Context HIL rejected",
+            });
+            return "FAILED";
+          }
           this.stateManager.transition(taskId, "RUNNING");
         } else {
-          // Pre-task overlay blocked without HIL (e.g. evidence gate pre-check)
-          this.stateManager.transition(taskId, "NEEDS_REWORK", {
-            rework_feedback: preResult.feedback ?? "Pre-task overlay check failed",
-          });
-          this.emitter.emit("task.rework", {
+          // HIL overlay unavailable — emit warning and continue
+          this.emitter.emit("context.warning", {
             task_id: taskId,
-            iteration,
-            feedback: preResult.feedback ?? "",
+            usage_pct: usagePct,
+            threshold_pct: hilPct,
           });
-          this.stateManager.transition(taskId, "RUNNING");
-          return "NEEDS_REWORK";
         }
+      } else if (usagePct >= warnPct) {
+        this.emitter.emit("context.warning", {
+          task_id: taskId,
+          usage_pct: usagePct,
+          threshold_pct: warnPct,
+        });
       }
     }
 
@@ -393,7 +532,7 @@ export class Engine {
     }
 
     // ── Post-task overlay chain (only on COMPLETED from adapter) ────────────
-    if (this.overlayChain.length > 0) {
+    if (this.providerChain.length > 0) {
       const overlayCtx: OverlayContext = {
         task_id: taskId,
         workflow_id: this.workflow.config.name,
@@ -402,30 +541,55 @@ export class Engine {
         agent_context: context,
       };
 
-      const postResult = await runPostTaskChain(this.overlayChain, overlayCtx, result);
-      if (!postResult.accept) {
-        const newStatus = postResult.new_status ?? "NEEDS_REWORK";
-        this.stateManager.transition(taskId, newStatus, {
-          rework_feedback: newStatus === "NEEDS_REWORK" ? postResult.feedback : undefined,
-          error: newStatus === "FAILED" ? postResult.feedback : undefined,
-        });
-        this.emitter.emit(newStatus === "FAILED" ? "task.failed" : "task.rework", {
-          task_id: taskId,
-          iteration,
-          feedback: postResult.feedback ?? "",
-          error: postResult.feedback ?? "",
-        });
-        if (newStatus === "NEEDS_REWORK") {
+      const postDecision = await runPostProviderChain(this.providerChain, overlayCtx, result);
+      const postResult = await this.applyPostDecision(taskId, postDecision, iteration);
+      if (postResult === "NEEDS_REWORK") return "NEEDS_REWORK";
+      if (postResult === "FAILED") return "FAILED";
+    }
+
+    // ── Output contract validation (adapter-independent safety check) ───────
+    // Validates path allowlist and secret detection regardless of adapter type.
+    // This ensures OpenAIAdapter (direct file writes) follows the same safety
+    // model as ClaudeCodeAdapter (which goes through complete-task).
+    const adapterOutputs = result.outputs ?? [];
+    const declaredOutputs = taskDef.outputs ?? [];
+    if (adapterOutputs.length > 0) {
+      const validation = validateAdapterOutputs(adapterOutputs, declaredOutputs, projectPath);
+      if (!validation.valid) {
+        const secretError = validation.errors.find((e) => e.kind === "secret_detected");
+        const otherErrors = validation.errors.filter((e) => e.kind !== "secret_detected");
+        if (secretError) {
+          // Secret in output → NEEDS_REWORK (same as complete-task behaviour)
+          this.stateManager.transition(taskId, "NEEDS_REWORK", {
+            rework_feedback: secretError.message,
+          });
+          this.emitter.emit("task.rework", {
+            task_id: taskId,
+            iteration,
+            feedback: secretError.message,
+          });
           this.stateManager.transition(taskId, "RUNNING");
           return "NEEDS_REWORK";
         }
-        return "FAILED";
+        if (otherErrors.length > 0) {
+          const msg = otherErrors.map((e) => e.message).join("; ");
+          this.stateManager.transition(taskId, "FAILED", { error: msg });
+          this.emitter.emit("task.failed", { task_id: taskId, error: msg });
+          return "FAILED";
+        }
       }
     }
 
     // ── COMPLETED ───────────────────────────────────────────────────────────
-    const outputs: TaskOutput[] = result.outputs ?? [];
-    this.stateManager.transition(taskId, "COMPLETED", { outputs });
+    const outputs: TaskOutput[] = adapterOutputs;
+    const completionUpdates: { outputs: TaskOutput[]; tokens_used?: typeof result.tokens_used; cost_usd?: number } = { outputs };
+    if (result.tokens_used) {
+      completionUpdates.tokens_used = result.tokens_used;
+      if (result.tokens_used.cost_usd !== undefined) {
+        completionUpdates.cost_usd = result.tokens_used.cost_usd;
+      }
+    }
+    this.stateManager.transition(taskId, "COMPLETED", completionUpdates);
 
     if (result.handover_state) {
       this.handoverState = mergeHandoverState(
@@ -450,6 +614,114 @@ export class Engine {
     });
 
     return "COMPLETED";
+  }
+
+  private async applyPreDecision(
+    taskId: string,
+    decision: OverlayDecision,
+    iteration: number,
+  ): Promise<"CONTINUE" | "NEEDS_REWORK" | "FAILED" | "HIL_AWAITING"> {
+    const verdict: OverlayVerdict = decision.verdict;
+
+    switch (verdict) {
+      case "PASS":
+        return "CONTINUE";
+
+      case "REWORK":
+        this.stateManager.transition(taskId, "NEEDS_REWORK", {
+          rework_feedback: decision.feedback ?? "Pre-task overlay requested rework",
+          ...(decision.evidence && { overlay_evidence: decision.evidence }),
+        });
+        this.emitter.emit("task.rework", {
+          task_id: taskId,
+          iteration,
+          feedback: decision.feedback ?? "",
+        });
+        this.stateManager.transition(taskId, "RUNNING");
+        return "NEEDS_REWORK";
+
+      case "FAIL":
+        this.stateManager.transition(taskId, "FAILED", {
+          error: decision.feedback ?? "Pre-task overlay returned FAIL",
+          ...(decision.evidence && { overlay_evidence: decision.evidence }),
+        });
+        this.emitter.emit("task.failed", {
+          task_id: taskId,
+          error: decision.feedback ?? "Pre-task overlay returned FAIL",
+        });
+        return "FAILED";
+
+      case "HIL": {
+        const hilId = decision.evidence?.data?.["hil_id"] as string | undefined;
+        this.stateManager.transition(taskId, "HIL_PENDING", {
+          ...(hilId !== undefined && { hil_item_id: hilId }),
+          ...(decision.evidence && { overlay_evidence: decision.evidence }),
+        });
+        this.emitter.emit("task.hil_pending", {
+          task_id: taskId,
+          hil_id: hilId,
+          feedback: decision.feedback,
+        });
+        return "HIL_AWAITING";
+      }
+
+      default: {
+        // This branch is unreachable if OverlayVerdict is exhaustive.
+        // TypeScript compilation fails if a new verdict is added without a handler.
+        const _exhaustive: never = verdict;
+        throw new Error(`Unhandled OverlayVerdict: ${String(_exhaustive)}`);
+      }
+    }
+  }
+
+  private async applyPostDecision(
+    taskId: string,
+    decision: OverlayDecision,
+    iteration: number,
+  ): Promise<"PASS" | "NEEDS_REWORK" | "FAILED"> {
+    switch (decision.verdict) {
+      case "PASS":
+        return "PASS";
+      case "REWORK":
+        this.stateManager.transition(taskId, "NEEDS_REWORK", {
+          rework_feedback: decision.feedback ?? "Post-task overlay requested rework",
+          ...(decision.evidence && { overlay_evidence: decision.evidence }),
+        });
+        this.emitter.emit("task.rework", {
+          task_id: taskId,
+          iteration,
+          feedback: decision.feedback ?? "",
+        });
+        this.stateManager.transition(taskId, "RUNNING");
+        return "NEEDS_REWORK";
+      case "FAIL":
+        this.stateManager.transition(taskId, "FAILED", {
+          error: decision.feedback ?? "Post-task overlay returned FAIL",
+          ...(decision.evidence && { overlay_evidence: decision.evidence }),
+        });
+        this.emitter.emit("task.failed", {
+          task_id: taskId,
+          error: decision.feedback ?? "FAIL",
+        });
+        return "FAILED";
+      case "HIL":
+        // HIL from post-task chain is an unusual case — treat as NEEDS_REWORK
+        // (post-task HIL is not fully specified; conservative handling)
+        this.stateManager.transition(taskId, "NEEDS_REWORK", {
+          rework_feedback: decision.feedback ?? "Post-task overlay requested HIL review",
+        });
+        this.emitter.emit("task.rework", {
+          task_id: taskId,
+          iteration,
+          feedback: decision.feedback ?? "",
+        });
+        this.stateManager.transition(taskId, "RUNNING");
+        return "NEEDS_REWORK";
+      default: {
+        const _exhaustive: never = decision.verdict;
+        throw new Error(`Unhandled OverlayVerdict: ${String(_exhaustive)}`);
+      }
+    }
   }
 
   /**

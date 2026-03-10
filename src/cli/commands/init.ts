@@ -5,6 +5,7 @@
 import type { Command } from "commander";
 import { resolve, join } from "path";
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readdirSync, appendFileSync, readFileSync } from "fs";
+import { ensureSessionDirs, setActiveSession } from "../../core/session-resolver.ts";
 
 export function registerInitCommand(program: Command): void {
   program
@@ -26,9 +27,23 @@ export function registerInitCommand(program: Command): void {
 
       // Create .ai-sdd/ structure
       const aiSddDir = join(projectPath, ".ai-sdd");
-      for (const dir of ["state", "state/hil", "outputs", "agents"]) {
-        const p = join(aiSddDir, dir);
-        if (!existsSync(p)) mkdirSync(p, { recursive: true });
+      const legacyStateDir = join(aiSddDir, "state");
+      if (existsSync(legacyStateDir) && !existsSync(join(aiSddDir, "sessions"))) {
+        // Legacy layout exists — preserve it, create agents/ only
+        if (!existsSync(join(aiSddDir, "agents"))) {
+          mkdirSync(join(aiSddDir, "agents"), { recursive: true });
+        }
+        console.log(`  Legacy .ai-sdd/state/ detected — skipping sessions migration.`);
+        console.log(`  Delete .ai-sdd/state/ to use the new sessions layout.`);
+      } else {
+        // New sessions layout
+        if (!existsSync(join(aiSddDir, "agents"))) {
+          mkdirSync(join(aiSddDir, "agents"), { recursive: true });
+        }
+        const defaultSessionDir = join(aiSddDir, "sessions", "default");
+        ensureSessionDirs(defaultSessionDir);
+        setActiveSession(projectPath, "default");
+        console.log(`  Created: .ai-sdd/sessions/default/`);
       }
 
       // Write minimal ai-sdd.yaml
@@ -110,7 +125,7 @@ function installClaudeCode(projectPath: string): void {
     }
   }
 
-  // Copy skill directories (each skill is a subdirectory with SKILL.md)
+  // Write skill directories — substitute {{PROJECT_PATH}} with the actual project path
   const srcSkillsDir = join(dataDir, "skills");
   if (existsSync(srcSkillsDir)) {
     for (const skillName of readdirSync(srcSkillsDir)) {
@@ -119,7 +134,9 @@ function installClaudeCode(projectPath: string): void {
       const skillFile = join(srcSkillsDir, skillName, "SKILL.md");
       const skillFileDest = join(skillDestDir, "SKILL.md");
       if (existsSync(skillFile) && !existsSync(skillFileDest)) {
-        copyFileSync(skillFile, skillFileDest);
+        const template = readFileSync(skillFile, "utf-8");
+        const rendered = template.replaceAll("{{PROJECT_PATH}}", projectPath);
+        writeFileSync(skillFileDest, rendered, "utf-8");
         console.log(`  Created: .claude/skills/${skillName}/SKILL.md`);
       }
     }
@@ -183,43 +200,65 @@ function installCodex(projectPath: string): void {
   }
 }
 
+const ROO_MCP_INSTRUCTIONS = `
+## MCP Tool Usage (ai-sdd)
+
+Use the \`ai-sdd\` MCP server tools to drive your workflow:
+
+1. **get_next_task** — get the next ready task(s) (DAG-aware: only unblocked PENDING tasks returned)
+2. **get_constitution** with \`task_id\` — fetch project context and task instructions
+3. Do your work: read files, write artifacts, run commands
+4. **complete_task** with \`task_id\`, \`output_path\`, and \`content\` — submit your output artifact
+5. **get_workflow_status** — check overall progress
+6. **list_hil_items** — check for pending human-in-the-loop approvals
+7. **resolve_hil** (id, notes) or **reject_hil** (id, reason) — respond to HIL requests
+
+Always call get_next_task first to find assigned work. Always call get_constitution before producing output so you have project context.
+`.trim();
+
 /** Role-specific Roo Code mode definitions matching the 6 default ai-sdd agent roles. */
 const ROO_AGENT_MODES = [
   {
     slug: "ai-sdd-ba",
     name: "ai-sdd: Business Analyst",
-    roleDefinition: "You are the ai-sdd Business Analyst agent. Your role is to define requirements, capture stakeholder needs, and produce detailed specification documents. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Business Analyst agent. Your role is to define requirements, capture stakeholder needs, and produce detailed specification documents. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-architect",
     name: "ai-sdd: Architect",
-    roleDefinition: "You are the ai-sdd Architect agent. Your role is to design system architecture, define component boundaries, and produce architecture documentation. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Architect agent. Your role is to design system architecture, define component boundaries, and produce architecture documentation. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-pe",
     name: "ai-sdd: Principal Engineer",
-    roleDefinition: "You are the ai-sdd Principal Engineer agent. Your role is to make high-level technical decisions, review architecture, and ensure engineering standards. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Principal Engineer agent. Your role is to make high-level technical decisions, review architecture, and ensure engineering standards. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-le",
     name: "ai-sdd: Lead Engineer",
-    roleDefinition: "You are the ai-sdd Lead Engineer agent. Your role is to plan implementation, break down tasks, and produce technical specifications for developers. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Lead Engineer agent. Your role is to plan implementation, break down tasks, and produce technical specifications for developers. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-dev",
     name: "ai-sdd: Developer",
-    roleDefinition: "You are the ai-sdd Developer agent. Your role is to implement features, write code, and produce implementation artifacts. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Developer agent. Your role is to implement features, write code, and produce implementation artifacts. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
   {
     slug: "ai-sdd-reviewer",
     name: "ai-sdd: Reviewer",
-    roleDefinition: "You are the ai-sdd Reviewer agent. Your role is to review code and artifacts, identify issues, and produce review reports. Complete assigned tasks using the ai-sdd CLI.",
-    groups: ["read", "edit", "command"],
+    roleDefinition: "You are the ai-sdd Reviewer agent. Your role is to review code and artifacts, identify issues, and produce review reports. Complete assigned tasks using the ai-sdd MCP server.",
+    customInstructions: ROO_MCP_INSTRUCTIONS,
+    groups: ["read", "edit", "command", "mcp"],
   },
 ];
 

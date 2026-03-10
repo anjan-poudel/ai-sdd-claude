@@ -1,0 +1,10 @@
+{
+  "task_id": "review-l1",
+  "risk_tier": "T1",
+  "verdict": "FAIL",
+  "failures": [
+    "No outputs produced",
+    "T1 risk tier requires verification evidence (tests_passed or lint_passed in handover_state)"
+  ],
+  "timestamp": "2026-03-10T07:29:02.812Z"
+}

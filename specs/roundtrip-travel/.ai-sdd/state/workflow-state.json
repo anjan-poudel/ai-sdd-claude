@@ -1,0 +1,118 @@
+{
+  "schema_version": "1",
+  "workflow": "default-sdd",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/roundtrip-travel",
+  "started_at": "2026-03-09T20:38:07.366Z",
+  "updated_at": "2026-03-10T07:43:43.000Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T06:46:55.742Z",
+      "completed_at": "2026-03-10T06:54:16.000Z",
+      "outputs": [
+        {
+          "path": "specs/define-requirements.md",
+          "contract": "requirements_doc",
+          "written_at": "2026-03-10T06:46:55.742Z"
+        },
+        {
+          "path": "specs/define-requirements.lock.yaml",
+          "contract": "requirements_lock",
+          "written_at": "2026-03-10T06:46:55.742Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "design-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:15:12.000Z",
+      "completed_at": "2026-03-10T07:15:12.000Z",
+      "outputs": [
+        {
+          "path": "specs/design-l1.md",
+          "contract": "architecture_l1",
+          "written_at": "2026-03-10T07:15:12.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:30:51.000Z",
+      "completed_at": "2026-03-10T07:30:51.000Z",
+      "outputs": [
+        {
+          "path": "specs/review-l1.md",
+          "contract": "review_report",
+          "written_at": "2026-03-10T07:30:51.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "design-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:33:25.000Z",
+      "completed_at": "2026-03-10T07:33:25.000Z",
+      "outputs": [
+        {
+          "path": "specs/design-l2.md",
+          "contract": "component_design_l2",
+          "written_at": "2026-03-10T07:33:25.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:34:07.000Z",
+      "completed_at": "2026-03-10T07:34:07.000Z",
+      "outputs": [
+        {
+          "path": "specs/review-l2.md",
+          "contract": "review_report",
+          "written_at": "2026-03-10T07:34:07.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "plan-tasks": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:42:27.000Z",
+      "completed_at": "2026-03-10T07:42:27.000Z",
+      "outputs": [
+        {
+          "path": "specs/plan-tasks/plan.md",
+          "contract": "task_breakdown_l3",
+          "written_at": "2026-03-10T07:42:27.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "implement": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:43:19.000Z",
+      "completed_at": "2026-03-10T07:43:19.000Z",
+      "outputs": [
+        {
+          "path": "specs/implement-notes.md",
+          "contract": "implementation",
+          "written_at": "2026-03-10T07:43:19.000Z"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-implementation": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T07:43:43.000Z",
+      "completed_at": "2026-03-10T07:43:43.000Z",
+      "outputs": [
+        {
+          "path": "specs/review-implementation.md",
+          "contract": "review_report",
+          "written_at": "2026-03-10T07:43:43.000Z"
+        }
+      ],
+      "iterations": 1
+    }
+  }
+}

@@ -9,6 +9,7 @@ import { join } from "path";
 import { z } from "zod";
 import { DEFAULT_CONFIG, mergeConfig } from "../config/defaults.ts";
 import type { ProjectConfig } from "../types/index.ts";
+import { parseRemoteOverlayConfig, type ResolvedOverlayConfig } from "../config/remote-overlay-schema.ts";
 
 const ProjectConfigSchema = z.object({
   version: z.string().optional(),
@@ -42,6 +43,10 @@ const ProjectConfigSchema = z.object({
   }).optional(),
   constitution: z.object({
     strict_parse: z.boolean().optional(),
+  }).optional(),
+  standards: z.object({
+    paths: z.array(z.string()).optional(),
+    strict: z.boolean().optional(),
   }).optional(),
   observability: z.object({
     log_level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
@@ -83,4 +88,39 @@ export function loadProjectConfig(
     config = mergeConfig(config, overrides);
   }
   return config;
+}
+
+/**
+ * Load remote overlay config (overlay_backends, remote_overlays, governance sections).
+ * Returns undefined if the config file doesn't exist or has none of these keys.
+ * Throws ZodError if present but invalid.
+ */
+export function loadRemoteOverlayConfig(
+  projectPath: string,
+): ResolvedOverlayConfig | undefined {
+  const configPath = join(projectPath, ".ai-sdd", "ai-sdd.yaml");
+
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+
+  const raw = readFileSync(configPath, "utf-8");
+  const parsed = yaml.load(raw) as Record<string, unknown> | null;
+
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
+
+  // Only parse if at least one of the new keys is present
+  if (!("overlay_backends" in parsed) && !("remote_overlays" in parsed) && !("governance" in parsed)) {
+    return undefined;
+  }
+
+  // Extract only the relevant keys
+  const section: Record<string, unknown> = {};
+  if ("overlay_backends" in parsed) section.overlay_backends = parsed.overlay_backends;
+  if ("remote_overlays" in parsed) section.remote_overlays = parsed.remote_overlays;
+  if ("governance" in parsed) section.governance = parsed.governance;
+
+  return parseRemoteOverlayConfig(section);
 }

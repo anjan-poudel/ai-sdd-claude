@@ -17,7 +17,9 @@ describe("ObservabilityEmitter", () => {
       log_level: "ERROR",
     });
 
-    emitter.on((e) => events.push(e));
+    emitter.on((e) => {
+      events.push(e);
+    });
     emitter.emit("task.started", { task_id: "t1", agent: "dev", operation_id: "op1", attempt_id: "a1", iteration: 1 });
 
     expect(events).toHaveLength(1);
@@ -33,7 +35,9 @@ describe("ObservabilityEmitter", () => {
       log_level: "ERROR",
     });
 
-    emitter.on((e) => events.push(e));
+    emitter.on((e) => {
+      events.push(e);
+    });
     emitter.emit("task.started", {
       task_id: "t1",
       key: "AKIAIOSFODNN7EXAMPLE", // should be redacted
@@ -55,7 +59,9 @@ describe("ObservabilityEmitter", () => {
   it("off() removes handler", () => {
     const events: AnyEvent[] = [];
     const emitter = new ObservabilityEmitter({ run_id: "r", workflow_id: "w", log_level: "ERROR" });
-    const handler = (e: AnyEvent) => events.push(e);
+    const handler = (e: AnyEvent): void => {
+      events.push(e);
+    };
     emitter.on(handler);
     emitter.emit("task.started", {});
     emitter.off(handler);

@@ -5,17 +5,20 @@
 import type { Command } from "commander";
 import { resolve } from "path";
 import { ConstitutionResolver } from "../../constitution/resolver.ts";
-import { loadProjectConfig } from "../config-loader.ts";
+import { resolveSession } from "../../core/session-resolver.ts";
 
 export function registerConstitutionCommand(program: Command): void {
   program
     .command("constitution")
     .description("Print the merged project constitution")
     .option("--task <id>", "Print constitution scoped to a specific task")
+    .option("--feature <name>", "Feature/session name")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
-      const config = loadProjectConfig(projectPath);
+      const featureName = options.feature as string | undefined;
+      const session = resolveSession({ projectPath, featureName });
+      const config = session.config;
 
       const resolver = new ConstitutionResolver({
         project_path: projectPath,

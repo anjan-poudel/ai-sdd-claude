@@ -153,6 +153,14 @@ export const ConfidenceComputedEvent = BaseEventSchema.extend({
   }).passthrough(),
 });
 
+export const ContextAssembledEvent = BaseEventSchema.extend({
+  type: z.literal("context.assembled"),
+  data: z.object({
+    task_id: z.string(),
+    token_count: z.number(),
+  }).passthrough(),
+});
+
 export const ContextWarningEvent = BaseEventSchema.extend({
   type: z.literal("context.warning"),
   data: z.object({
@@ -179,6 +187,109 @@ export const SecurityViolationEvent = BaseEventSchema.extend({
     severity: z.enum(["low", "medium", "high", "critical"]),
     // Content is NEVER included in events — only metadata
     pattern_matched: z.string().optional(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteConnectingEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.connecting"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    task_id: z.string(),
+    workflow_id: z.string(),
+    run_id: z.string(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteConnectedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.connected"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    task_id: z.string(),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteInvokedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.invoked"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteDecisionEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.decision"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    verdict: z.enum(["PASS", "REWORK", "FAIL", "HIL"]),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteFailedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.failed"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    failure_tier: z.enum(["transport", "schema"]),
+    error_message: z.string(),
+    duration_ms: z.number(),
+  }).passthrough(),
+});
+
+export const OverlayRemoteFallbackEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.fallback"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    failure_policy: z.enum(["skip", "warn"]),
+  }).passthrough(),
+});
+
+export const TaskHilResumingEvent = BaseEventSchema.extend({
+  type: z.literal("task.hil_resuming"),
+  data: z.object({
+    task_id: z.string(),
+    hil_id: z.string(),
+  }).passthrough(),
+});
+
+export const TaskHilPendingEvent = BaseEventSchema.extend({
+  type: z.literal("task.hil_pending"),
+  data: z.object({
+    task_id: z.string(),
+    hil_id: z.string().optional(),
+    feedback: z.string().optional(),
+  }).passthrough(),
+});
+
+export const HilNotifyFailedEvent = BaseEventSchema.extend({
+  type: z.literal("hil.notify_failed"),
+  data: z.object({
+    hil_id: z.string(),
+    task_id: z.string(),
+    command: z.string().optional(),
+    exit_code: z.number().optional(),
+    error: z.string().optional(),
+  }).passthrough(),
+});
+
+export const PairedNotImplementedEvent = BaseEventSchema.extend({
+  type: z.literal("paired.not_implemented"),
+  data: z.object({
+    task_id: z.string(),
+    message: z.string(),
   }).passthrough(),
 });
 

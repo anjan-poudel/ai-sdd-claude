@@ -8,5 +8,5 @@ overlays:
   policy_gate: { risk_tier: T1 }    # verification: tests + lint required
 max_rework_iterations: 3
 outputs:
-  - path: ".ai-sdd/outputs/{{task_id}}-notes.md"
+  - path: "specs/{{task_id}}-notes.md"
     contract: implementation

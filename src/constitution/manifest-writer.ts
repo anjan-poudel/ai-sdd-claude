@@ -30,9 +30,9 @@ function buildManifestEntries(
   return outputs.map((o) => ({
     task_id,
     path: o.path,
-    contract: o.contract,
     status,
-    completed_at,
+    ...(o.contract !== undefined && { contract: o.contract }),
+    ...(completed_at !== undefined && { completed_at }),
   }));
 }
 

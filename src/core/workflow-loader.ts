@@ -5,8 +5,19 @@
 import { z } from "zod";
 import yaml from "js-yaml";
 import { readFileSync, existsSync } from "fs";
-import type { TaskDefinition, TaskOverlays, WorkflowConfig, WorkflowDefaults, ExecutionPlan, ParallelGroup } from "../types/index.ts";
+import type {
+  TaskConfig,
+  TaskDefinition,
+  TaskOutput,
+  TaskOverlays,
+  WorkflowConfig,
+  WorkflowDefaults,
+  ExecutionPlan,
+  ParallelGroup,
+  ResolvedTaskConfig,
+} from "../types/index.ts";
 import { ENGINE_TASK_DEFAULTS } from "../types/index.ts";
+import { validate as validateDslExpression } from "../dsl/parser.ts";
 
 // ─── Zod Schema ──────────────────────────────────────────────────────────────
 
@@ -25,17 +36,31 @@ const TaskOverlayPolicyGateSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+const TaskOverlayConfidenceMetricSchema = z.object({
+  type: z.string(),
+  weight: z.number().min(0).max(1).optional(),
+  evaluator_agent: z.string().optional(),
+});
+
 const TaskOverlayConfidenceSchema = z.object({
   enabled: z.boolean().optional(),
   threshold: z.number().min(0).max(1).optional(),
+  metrics: z.array(TaskOverlayConfidenceMetricSchema).optional(),
 });
 
 const TaskOverlayPairedSchema = z.object({
   enabled: z.boolean().optional(),
+  driver_agent: z.string().optional(),
+  challenger_agent: z.string().optional(),
+  role_switch: z.enum(["session", "subtask", "checkpoint"]).optional(),
+  max_iterations: z.number().int().positive().optional(),
 });
 
 const TaskOverlayReviewSchema = z.object({
   enabled: z.boolean().optional(),
+  coder_agent: z.string().optional(),
+  reviewer_agent: z.string().optional(),
+  max_iterations: z.number().int().positive().optional(),
 });
 
 const TaskOverlaysSchema = z.object({
@@ -86,13 +111,76 @@ const LibraryTemplateSchema = z.object({
 
 /** Per-overlay-key merge: keys from `override` replace matching keys in `base`. */
 function deepMergeOverlays(base: TaskOverlays, override: TaskOverlays): TaskOverlays {
-  const result = { ...base };
+  const result: Partial<TaskOverlays> = { ...base };
   for (const key of Object.keys(override) as (keyof TaskOverlays)[]) {
     if (override[key] !== undefined) {
       result[key] = { ...(base[key] ?? {}), ...(override[key] ?? {}) } as never;
     }
   }
-  return result;
+  return result as TaskOverlays;
+}
+
+function normalizeTaskOutputs(
+  outputs: Array<{ path: string; contract?: string | undefined }>,
+): TaskOutput[] {
+  return outputs.map((output) => ({
+    path: output.path,
+    ...(output.contract !== undefined && { contract: output.contract }),
+  }));
+}
+
+type LooseTaskOverlays = {
+  hil?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
+  policy_gate?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
+  confidence?: { enabled?: boolean | undefined; threshold?: number | undefined; metrics?: Array<{ type: string; weight?: number; evaluator_agent?: string }> | undefined } | undefined;
+  paired?: { enabled?: boolean | undefined; driver_agent?: string | undefined; challenger_agent?: string | undefined; role_switch?: "session" | "subtask" | "checkpoint" | undefined; max_iterations?: number | undefined } | undefined;
+  review?: { enabled?: boolean | undefined; coder_agent?: string | undefined; reviewer_agent?: string | undefined; max_iterations?: number | undefined } | undefined;
+};
+
+function normalizeTaskOverlays(
+  overlays: LooseTaskOverlays | undefined,
+): TaskOverlays | undefined {
+  if (!overlays) return undefined;
+
+  const normalized: Partial<TaskOverlays> = {};
+  if (overlays.hil !== undefined) {
+    normalized.hil = {
+      ...(overlays.hil.enabled !== undefined && { enabled: overlays.hil.enabled }),
+      ...(overlays.hil.risk_tier !== undefined && { risk_tier: overlays.hil.risk_tier }),
+    };
+  }
+  if (overlays.policy_gate !== undefined) {
+    normalized.policy_gate = {
+      ...(overlays.policy_gate.enabled !== undefined && { enabled: overlays.policy_gate.enabled }),
+      ...(overlays.policy_gate.risk_tier !== undefined && { risk_tier: overlays.policy_gate.risk_tier }),
+    };
+  }
+  if (overlays.confidence !== undefined) {
+    normalized.confidence = {
+      ...(overlays.confidence.enabled !== undefined && { enabled: overlays.confidence.enabled }),
+      ...(overlays.confidence.threshold !== undefined && { threshold: overlays.confidence.threshold }),
+      ...(overlays.confidence.metrics !== undefined && { metrics: overlays.confidence.metrics }),
+    };
+  }
+  if (overlays.paired !== undefined) {
+    normalized.paired = {
+      ...(overlays.paired.enabled !== undefined && { enabled: overlays.paired.enabled }),
+      ...(overlays.paired.driver_agent !== undefined && { driver_agent: overlays.paired.driver_agent }),
+      ...(overlays.paired.challenger_agent !== undefined && { challenger_agent: overlays.paired.challenger_agent }),
+      ...(overlays.paired.role_switch !== undefined && { role_switch: overlays.paired.role_switch }),
+      ...(overlays.paired.max_iterations !== undefined && { max_iterations: overlays.paired.max_iterations }),
+    };
+  }
+  if (overlays.review !== undefined) {
+    normalized.review = {
+      ...(overlays.review.enabled !== undefined && { enabled: overlays.review.enabled }),
+      ...(overlays.review.coder_agent !== undefined && { coder_agent: overlays.review.coder_agent }),
+      ...(overlays.review.reviewer_agent !== undefined && { reviewer_agent: overlays.review.reviewer_agent }),
+      ...(overlays.review.max_iterations !== undefined && { max_iterations: overlays.review.max_iterations }),
+    };
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized as TaskOverlays : undefined;
 }
 
 // ─── WorkflowGraph ────────────────────────────────────────────────────────────
@@ -190,10 +278,16 @@ export class WorkflowLoader {
       );
     }
 
-    const raw = result.data as WorkflowConfig;
+    const raw = result.data as {
+      version: string;
+      name: string;
+      description?: string;
+      defaults?: WorkflowDefaults;
+      tasks: Record<string, TaskConfig>;
+    };
 
     // Resolve each task: engine defaults → workflow defaults → library template → inline
-    const resolvedTaskMap: Record<string, Omit<TaskDefinition, "id">> = {};
+    const resolvedTaskMap: Record<string, ResolvedTaskConfig> = {};
     for (const [taskId, rawTask] of Object.entries(raw.tasks)) {
       resolvedTaskMap[taskId] = WorkflowLoader.resolveTask(
         taskId,
@@ -211,6 +305,9 @@ export class WorkflowLoader {
     // Validate that all dependencies reference existing tasks
     WorkflowLoader.validateDependencies(config);
 
+    // Validate overlay constraints (llm_judge independence, paired reviewer independence)
+    WorkflowLoader.validateOverlayConstraints(config);
+
     // Detect cycles using Kahn's algorithm; also compute parallel groups
     const plan = WorkflowLoader.buildExecutionPlan(config);
 
@@ -227,15 +324,18 @@ export class WorkflowLoader {
    */
   private static resolveTask(
     taskId: string,
-    inline: Omit<TaskDefinition, "id">,
+    inline: TaskConfig,
     workflowDefaults: WorkflowDefaults | undefined,
     libraryDir: string,
-  ): Omit<TaskDefinition, "id"> {
+  ): ResolvedTaskConfig {
     // Layer 1: engine built-in defaults
-    let resolved: Partial<Omit<TaskDefinition, "id">> = {
-      overlays: deepMergeOverlays({}, ENGINE_TASK_DEFAULTS.overlays ?? {}),
-      max_rework_iterations: ENGINE_TASK_DEFAULTS.max_rework_iterations,
-    };
+    const resolved: Partial<ResolvedTaskConfig> = {};
+    if (ENGINE_TASK_DEFAULTS.overlays) {
+      resolved.overlays = deepMergeOverlays({}, ENGINE_TASK_DEFAULTS.overlays);
+    }
+    if (ENGINE_TASK_DEFAULTS.max_rework_iterations !== undefined) {
+      resolved.max_rework_iterations = ENGINE_TASK_DEFAULTS.max_rework_iterations;
+    }
 
     // Layer 2: workflow defaults
     if (workflowDefaults) {
@@ -255,7 +355,7 @@ export class WorkflowLoader {
       const template = WorkflowLoader.loadLibraryTemplate(inline.use, libraryDir);
       resolved.agent = template.agent;
       if (template.description) resolved.description = template.description;
-      if (template.outputs) resolved.outputs = template.outputs;
+      if (template.outputs) resolved.outputs = normalizeTaskOutputs(template.outputs);
       if (template.exit_conditions?.length) {
         resolved.exit_conditions = [
           ...(resolved.exit_conditions ?? []),
@@ -263,7 +363,10 @@ export class WorkflowLoader {
         ];
       }
       if (template.overlays) {
-        resolved.overlays = deepMergeOverlays(resolved.overlays ?? {}, template.overlays);
+        resolved.overlays = deepMergeOverlays(
+          resolved.overlays ?? {},
+          normalizeTaskOverlays(template.overlays as LooseTaskOverlays) ?? {},
+        );
       }
       if (template.max_rework_iterations !== undefined) {
         resolved.max_rework_iterations = template.max_rework_iterations;
@@ -274,7 +377,7 @@ export class WorkflowLoader {
     if (inline.agent) resolved.agent = inline.agent;
     if (inline.description) resolved.description = inline.description;
     if (inline.depends_on) resolved.depends_on = inline.depends_on;
-    if (inline.outputs) resolved.outputs = inline.outputs;
+    if (inline.outputs) resolved.outputs = normalizeTaskOutputs(inline.outputs);
     if (inline.exit_conditions?.length) {
       resolved.exit_conditions = [
         ...(resolved.exit_conditions ?? []),
@@ -282,7 +385,10 @@ export class WorkflowLoader {
       ];
     }
     if (inline.overlays) {
-      resolved.overlays = deepMergeOverlays(resolved.overlays ?? {}, inline.overlays);
+      resolved.overlays = deepMergeOverlays(
+        resolved.overlays ?? {},
+        normalizeTaskOverlays(inline.overlays) ?? {},
+      );
     }
     if (inline.max_rework_iterations !== undefined) {
       resolved.max_rework_iterations = inline.max_rework_iterations;
@@ -291,8 +397,8 @@ export class WorkflowLoader {
     // Substitute {{task_id}} in output paths
     if (resolved.outputs) {
       resolved.outputs = resolved.outputs.map((o) => ({
-        ...o,
         path: o.path.replace(/\{\{task_id\}\}/g, taskId),
+        ...(o.contract !== undefined && { contract: o.contract }),
       }));
     }
 
@@ -308,7 +414,7 @@ export class WorkflowLoader {
       );
     }
 
-    return resolved as Omit<TaskDefinition, "id">;
+    return resolved as ResolvedTaskConfig;
   }
 
   private static loadLibraryTemplate(name: string, libraryDir: string): z.infer<typeof LibraryTemplateSchema> {
@@ -329,11 +435,10 @@ export class WorkflowLoader {
   }
 
   private static validateDSLExpressions(config: WorkflowConfig): void {
-    const { validate } = require("../dsl/parser.ts");
     for (const [taskId, task] of Object.entries(config.tasks)) {
       for (const expr of task.exit_conditions ?? []) {
         try {
-          validate(expr);
+          validateDslExpression(expr);
         } catch (err) {
           throw new Error(
             `DSL parse error in task '${taskId}' exit_condition: ${err instanceof Error ? err.message : String(err)}`,
@@ -350,6 +455,58 @@ export class WorkflowLoader {
         if (!taskIds.has(dep)) {
           throw new Error(
             `Task '${taskId}' depends on '${dep}' which does not exist in the workflow`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate overlay constraints:
+   * - llm_judge metrics require evaluator_agent ≠ task agent
+   * - paired overlay: challenger_agent must differ from task agent
+   */
+  private static validateOverlayConstraints(config: WorkflowConfig): void {
+    for (const [taskId, task] of Object.entries(config.tasks)) {
+      // llm_judge validation
+      for (const metric of task.overlays?.confidence?.metrics ?? []) {
+        if (metric.type === "llm_judge") {
+          if (!metric.evaluator_agent) {
+            throw new Error(
+              `Task '${taskId}': llm_judge metric requires evaluator_agent to be set`,
+            );
+          }
+          if (metric.evaluator_agent === task.agent) {
+            throw new Error(
+              `Task '${taskId}': llm_judge evaluator_agent ('${metric.evaluator_agent}') must differ from task agent ('${task.agent}'). An agent cannot judge its own output.`,
+            );
+          }
+        }
+      }
+
+      // Review overlay: if reviewer_agent is set, it must differ from coder_agent/task agent
+      if (task.overlays?.review?.enabled) {
+        const reviewerAgent = task.overlays.review.reviewer_agent;
+        const coderAgent = task.overlays.review.coder_agent ?? task.agent;
+        if (reviewerAgent && reviewerAgent === coderAgent) {
+          throw new Error(
+            `Task '${taskId}': review overlay reviewer_agent ('${reviewerAgent}') must differ from coder_agent ('${coderAgent}'). Reviewer independence required.`,
+          );
+        }
+      }
+
+      // Paired overlay: challenger must differ from driver/task agent
+      if (task.overlays?.paired?.enabled) {
+        const challengerAgent = task.overlays.paired.challenger_agent;
+        const driverAgent = task.overlays.paired.driver_agent ?? task.agent;
+        if (challengerAgent && challengerAgent === driverAgent) {
+          throw new Error(
+            `Task '${taskId}': paired overlay challenger_agent ('${challengerAgent}') must differ from driver agent ('${driverAgent}'). Reviewer independence required.`,
+          );
+        }
+        if (!challengerAgent) {
+          throw new Error(
+            `Task '${taskId}': paired overlay enabled but challenger_agent is not set`,
           );
         }
       }

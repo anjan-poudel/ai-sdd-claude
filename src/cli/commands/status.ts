@@ -7,30 +7,13 @@ import { resolve } from "path";
 import { existsSync } from "fs";
 import { StateManager } from "../../core/state-manager.ts";
 import { WorkflowLoader } from "../../core/workflow-loader.ts";
-import { loadProjectConfig } from "../config-loader.ts";
 import type { TaskStatus } from "../../types/index.ts";
+import { resolveSession } from "../../core/session-resolver.ts";
 
-/** Resolve the workflow name using the same search order as the run command. */
-function resolveWorkflowName(projectPath: string, configWorkflowName?: string): string {
-  const wfPaths = [
-    resolve(projectPath, ".ai-sdd", "workflow.yaml"),
-    ...(configWorkflowName
-      ? [resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)]
-      : []),
-    resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
-  ];
-  for (const p of wfPaths) {
-    if (existsSync(p)) {
-      try {
-        const wf = WorkflowLoader.loadFile(p);
-        return wf.config.name;
-      } catch {
-        // Malformed YAML — skip
-      }
-    }
-  }
-  // Fall back to the name stored in the state file (load() will override the constructor value)
-  return "workflow";
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}s`;
 }
 
 const STATUS_SYMBOLS: Record<TaskStatus, string> = {
@@ -40,6 +23,7 @@ const STATUS_SYMBOLS: Record<TaskStatus, string> = {
   NEEDS_REWORK: "↺",
   HIL_PENDING: "⏳",
   FAILED: "✗",
+  CANCELLED: "⊘",
 };
 
 export function registerStatusCommand(program: Command): void {
@@ -49,14 +33,30 @@ export function registerStatusCommand(program: Command): void {
     .option("--json", "Output full workflow state as JSON")
     .option("--next", "Output next ready tasks (use with --json for MCP)")
     .option("--metrics", "Include cost/token/duration per task")
+    .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
+    .option("--feature <name>", "Feature/session name")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
-      const stateDir = resolve(projectPath, ".ai-sdd", "state");
 
-      const config = loadProjectConfig(projectPath);
-      const workflowName = resolveWorkflowName(projectPath, config.workflow as string | undefined);
-      const stateManager = new StateManager(stateDir, workflowName, projectPath);
+      const session = resolveSession({
+        projectPath,
+        featureName: options.feature as string | undefined,
+        workflowName: options.workflow as string | undefined,
+      });
+
+      // Resolve workflow name for StateManager
+      let workflowName = "workflow";
+      if (session.workflowPath && existsSync(session.workflowPath)) {
+        try {
+          const wf = WorkflowLoader.loadFile(session.workflowPath);
+          workflowName = wf.config.name;
+        } catch {
+          // Malformed YAML — fall back
+        }
+      }
+
+      const stateManager = new StateManager(session.stateDir, workflowName, projectPath);
       try {
         stateManager.load();
       } catch {
@@ -68,9 +68,26 @@ export function registerStatusCommand(program: Command): void {
 
       if (options.json) {
         if (options.next) {
-          // --next --json: return ready tasks
+          // --next --json: return tasks that are PENDING AND have all dependencies COMPLETED.
+          // Load the workflow to build the dependency map.
+          let dependsOn: Record<string, string[]> = {};
+          if (session.workflowPath && existsSync(session.workflowPath)) {
+            try {
+              const wf = WorkflowLoader.loadFile(session.workflowPath);
+              for (const [id, task] of wf.tasks) {
+                dependsOn[id] = task.depends_on ?? [];
+              }
+            } catch {
+              // Malformed — skip dependency filtering
+            }
+          }
+
           const ready = Object.entries(state.tasks)
-            .filter(([, s]) => s.status === "PENDING")
+            .filter(([id, s]) => {
+              if (s.status !== "PENDING") return false;
+              const deps = dependsOn[id] ?? [];
+              return deps.every((dep) => state.tasks[dep]?.status === "COMPLETED");
+            })
             .map(([id, s]) => ({ id, ...s }));
           console.log(JSON.stringify({ ready_tasks: ready }, null, 2));
         } else {
@@ -88,11 +105,15 @@ export function registerStatusCommand(program: Command): void {
 
       const tasks = Object.entries(state.tasks);
       const maxIdLen = Math.max(...tasks.map(([id]) => id.length), 10);
+      const showMetrics = Boolean(options.metrics);
 
-      console.log(
-        `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed`,
-      );
-      console.log("─".repeat(maxIdLen + 40));
+      const header = showMetrics
+        ? `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed   Tokens      Cost`
+        : `${"Task".padEnd(maxIdLen)}  Status       Iter  Completed`;
+      const ruleLen = showMetrics ? maxIdLen + 58 : maxIdLen + 40;
+
+      console.log(header);
+      console.log("─".repeat(ruleLen));
 
       for (const [id, taskState] of tasks) {
         const symbol = STATUS_SYMBOLS[taskState.status];
@@ -101,14 +122,35 @@ export function registerStatusCommand(program: Command): void {
         const completedStr = taskState.completed_at
           ? taskState.completed_at.substring(0, 10)
           : "—";
-        console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}`);
+        if (showMetrics) {
+          const dur = taskState.started_at && taskState.completed_at
+            ? formatDuration(Date.parse(taskState.completed_at) - Date.parse(taskState.started_at))
+            : "—";
+          const tokens = taskState.tokens_used
+            ? String(taskState.tokens_used.total).padStart(8)
+            : "       —";
+          const cost = taskState.cost_usd !== undefined
+            ? `$${taskState.cost_usd.toFixed(4)}`.padStart(9)
+            : "        —";
+          console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}  ${dur.padEnd(5)}  ${tokens}  ${cost}`);
+        } else {
+          console.log(`${id.padEnd(maxIdLen)}  ${statusStr}  ${iterStr}  ${completedStr}`);
+        }
       }
 
       const completed = tasks.filter(([, s]) => s.status === "COMPLETED").length;
       const failed = tasks.filter(([, s]) => s.status === "FAILED").length;
       const pending = tasks.filter(([, s]) => s.status === "PENDING").length;
+      const cancelled = tasks.filter(([, s]) => s.status === "CANCELLED").length;
 
-      console.log("\n" + "─".repeat(maxIdLen + 40));
-      console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending}`);
+      console.log("\n" + "─".repeat(ruleLen));
+
+      if (showMetrics) {
+        const totalTokens = tasks.reduce((sum, [, s]) => sum + (s.tokens_used?.total ?? 0), 0);
+        const totalCost = tasks.reduce((sum, [, s]) => sum + (s.cost_usd ?? 0), 0);
+        console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled} | tokens: ${totalTokens} | cost: $${totalCost.toFixed(4)}`);
+      } else {
+        console.log(`Total: ${tasks.length} | ✓ ${completed} | ✗ ${failed} | ○ ${pending} | ⊘ ${cancelled}`);
+      }
     });
 }

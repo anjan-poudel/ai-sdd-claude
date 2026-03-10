@@ -385,6 +385,81 @@ tasks:
   });
 });
 
+describe("WorkflowLoader: task library merge precedence (gaps from gap-analysis)", () => {
+  // These three tests cover the untested merge scenarios identified in
+  // docs/deep-gap-analysis-opus.md §7: "Task library merge precedence is untested".
+
+  it("use: template overlay overrides workflow defaults — hil.enabled false wins over defaults true", () => {
+    // standard-implement sets hil.enabled: false.
+    // A workflow default of hil.enabled: true must be overridden by the template.
+    const graph = WorkflowLoader.loadYAML(
+      `
+version: "1"
+name: test
+defaults:
+  overlays:
+    hil: { enabled: true }
+tasks:
+  impl:
+    use: standard-implement
+    depends_on: []
+`,
+      LIBRARY_DIR,
+    );
+    // Template hil.enabled: false must win over defaults hil.enabled: true
+    expect(graph.getTask("impl").overlays?.hil?.enabled).toBe(false);
+  });
+
+  it("task inline overlay overrides use: template overlay — hil.enabled true wins over template false", () => {
+    // standard-implement sets hil.enabled: false.
+    // Inline overlays.hil.enabled: true must win.
+    const graph = WorkflowLoader.loadYAML(
+      `
+version: "1"
+name: test
+tasks:
+  impl:
+    use: standard-implement
+    depends_on: []
+    overlays:
+      hil: { enabled: true }
+`,
+      LIBRARY_DIR,
+    );
+    // Inline wins over template
+    expect(graph.getTask("impl").overlays?.hil?.enabled).toBe(true);
+    // Template policy_gate.risk_tier: T1 must also be preserved (no clobber)
+    expect(graph.getTask("impl").overlays?.policy_gate?.risk_tier).toBe("T1");
+  });
+
+  it("overlay keys from each layer merge individually — no layer clobbers keys set by a prior layer", () => {
+    // Scenario: workflow default sets confidence.threshold, template sets hil.enabled: false,
+    // inline sets policy_gate.risk_tier: T2.  All three must survive in the final task.
+    // Uses standard-implement (hil.enabled: false, policy_gate: T1) as template base.
+    const graph = WorkflowLoader.loadYAML(
+      `
+version: "1"
+name: test
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T1 }
+tasks:
+  impl:
+    use: standard-implement
+    depends_on: []
+    overlays:
+      policy_gate: { risk_tier: T2 }
+`,
+      LIBRARY_DIR,
+    );
+    const task = graph.getTask("impl");
+    // Inline T2 wins over template T1 (and default T1)
+    expect(task.overlays?.policy_gate?.risk_tier).toBe("T2");
+    // Template hil.enabled: false must survive unaffected by inline touching only policy_gate
+    expect(task.overlays?.hil?.enabled).toBe(false);
+  });
+});
+
 describe("WorkflowLoader: T022 example workflows load with defaults", () => {
   const examples = [
     "01-quickfix",
@@ -401,4 +476,109 @@ describe("WorkflowLoader: T022 example workflows load with defaults", () => {
       expect(() => WorkflowLoader.loadFile(path)).not.toThrow();
     });
   }
+});
+
+describe("WorkflowLoader: validateOverlayConstraints", () => {
+  it("rejects llm_judge without evaluator_agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+`, LIBRARY_DIR),
+    ).toThrow(/evaluator_agent/);
+  });
+
+  it("rejects llm_judge when evaluator_agent equals task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+            evaluator_agent: dev-agent
+`, LIBRARY_DIR),
+    ).toThrow(/cannot judge its own output/);
+  });
+
+  it("accepts llm_judge when evaluator_agent differs from task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      confidence:
+        metrics:
+          - type: llm_judge
+            evaluator_agent: reviewer-agent
+`, LIBRARY_DIR),
+    ).not.toThrow();
+  });
+
+  it("rejects paired overlay without challenger_agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+`, LIBRARY_DIR),
+    ).toThrow(/challenger_agent/);
+  });
+
+  it("rejects paired overlay when challenger_agent equals task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+        challenger_agent: dev-agent
+`, LIBRARY_DIR),
+    ).toThrow(/Reviewer independence required/);
+  });
+
+  it("accepts paired overlay when challenger differs from task agent", () => {
+    expect(() =>
+      WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    agent: dev-agent
+    description: Implement
+    overlays:
+      paired:
+        enabled: true
+        challenger_agent: reviewer-agent
+`, LIBRARY_DIR),
+    ).not.toThrow();
+  });
 });

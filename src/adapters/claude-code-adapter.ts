@@ -166,7 +166,7 @@ export class ClaudeCodeAdapter extends RuntimeAdapter {
     }
   }
 
-  async healthCheck(): Promise<boolean> {
+  override async healthCheck(): Promise<boolean> {
     try {
       const proc = Bun.spawn(["claude", "--version"], { stdout: "pipe", stderr: "pipe" });
       const exitCode = await proc.exited;

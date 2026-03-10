@@ -71,7 +71,7 @@ tasks:
     overlays:
       policy_gate: { risk_tier: T1 }
       confidence: { enabled: true, threshold: 0.85 }
-      paired: { enabled: true }
+      paired: { enabled: false }
     max_rework_iterations: 5
 
   security-test:

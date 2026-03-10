@@ -1,0 +1,137 @@
+version: "1"
+name: merge-coding-standards
+description: "Integrate coding-standards features into ai-sdd. Specs in specs/merge-coding-standards/tasks/"
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T1 }
+    hil: { enabled: true }
+  max_rework_iterations: 3
+
+tasks:
+
+  # ── Phase 1: Zero-Code Foundations ───────────────────────────────────────
+
+  mcs-004:
+    agent: dev
+    description: "Create constitution.md with 9 non-negotiable rules. Add reference to all 6 agent MD files."
+
+  mcs-005a:
+    agent: dev
+    description: "Add 90% confidence protocol and GO gate to sdd-scaffold.md and sdd-ba.md."
+    depends_on: [mcs-004]
+
+  mcs-005b:
+    agent: dev
+    description: "Create data/integration/toolgate.yaml and requirements.lock.example.yaml. Update init.ts to copy both."
+    depends_on: [mcs-005a]
+
+  mcs-005c:
+    agent: dev
+    description: "Add plans/<feature-name>/ convention to CLAUDE.md."
+    depends_on: [mcs-005b]
+    overlays:
+      hil: { enabled: false }
+
+  # ── Phase 2: Schema Extensions + Governance Flag ──────────────────────────
+
+  mcs-006:
+    agent: dev
+    description: "Add GovernanceMode, LockMode, AcceptanceCriterion, TaskBudget, ACCoverageReport, GatedHandoverState types and Zod schemas to src/types/index.ts."
+    depends_on: [mcs-005b]
+
+  mcs-001:
+    agent: dev
+    description: "Add governance and requirements_lock config blocks to ai-sdd.yaml schema and src/config/defaults.ts."
+    depends_on: [mcs-006]
+
+  mcs-007:
+    agent: dev
+    description: "Wire new optional TaskDefinition fields (acceptance_criteria, scope_excluded, budget, phase, requirement_ids) through workflow-loader.ts."
+    depends_on: [mcs-006, mcs-001]
+
+  mcs-009a:
+    agent: dev
+    description: "Add spec hash tracking to engine.ts run() startup. Add --acknowledge-spec-change flag to run.ts."
+    depends_on: [mcs-007]
+
+  mcs-009b:
+    agent: dev
+    description: "Implement Gate 2 scope drift check (scan raw_output for scope_excluded terms) in PolicyGateOverlay.postTask."
+    depends_on: [mcs-009a]
+
+  mcs-009c:
+    agent: dev
+    description: "Implement Gate 2b budget check (new_files_created, loc_delta, new_public_apis) in PolicyGateOverlay.postTask."
+    depends_on: [mcs-009b]
+
+  # ── Phase 3: Traceability CLI + Planning Review + MCP ────────────────────
+
+  mcs-011:
+    agent: reviewer
+    description: "Feasibility spike: evaluate coding-standards/tools/* for reuse. Produce specs/merge-coding-standards/tools-spike-decision.md."
+    depends_on: [mcs-009c]
+    overlays:
+      policy_gate: { risk_tier: T0 }
+
+  mcs-008:
+    agent: dev
+    description: "Implement ai-sdd traceability CLI (validate-lock, gaps, coverage, report --json) in src/cli/commands/traceability.ts."
+    depends_on: [mcs-011]
+
+  mcs-010:
+    agent: dev
+    description: "Register validate_requirements_lock and check_scope_drift MCP tools backed by traceability CLI. No stubs."
+    depends_on: [mcs-008]
+    overlays:
+      hil: { enabled: false }
+
+  mcs-012:
+    agent: dev
+    description: "Implement PlanningReviewOverlay with timeout handling. Update composition-rules.ts chain order."
+    depends_on: [mcs-007]
+
+  mcs-013:
+    agent: dev
+    description: "Add AC coverage gate as Step 2.5 in complete-task (between sanitize and contract-validate)."
+    depends_on: [mcs-007, mcs-001]
+
+  # ── Phase 4: Tooling + CI/CD (parallelisable) ─────────────────────────────
+
+  mcs-002:
+    agent: dev
+    description: "Create adapted reproducibility-check.sh and semantic-drift-check.sh in data/integration/scripts/."
+    depends_on: [mcs-009c, mcs-008]
+
+  mcs-003:
+    agent: dev
+    description: "Create GitHub Actions template data/integration/.github/workflows/ai-sdd-gates.yml with init guard."
+    depends_on: [mcs-002]
+    overlays:
+      hil: { enabled: false }
+
+  mcs-015:
+    agent: dev
+    description: "Add phase-based model routing to src/adapters/factory.ts. Auth warnings only for used adapters."
+    depends_on: [mcs-007]
+
+  mcs-016:
+    agent: dev
+    description: "Create data/integration/scripts/check-budgets.sh for out-of-process budget verification."
+    depends_on: [mcs-009c]
+    overlays:
+      hil: { enabled: false }
+
+  mcs-017:
+    agent: dev
+    description: "Create data/task-library/regenerate-requirements-lock.yaml task library entry."
+    depends_on: [mcs-009c]
+    overlays:
+      hil: { enabled: false }
+
+  mcs-014:
+    agent: dev
+    description: "Create data/integration/claude-code/GOVERNANCE.md covering all governance features."
+    depends_on: [mcs-009c, mcs-013]
+    overlays:
+      hil: { enabled: false }

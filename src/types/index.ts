@@ -11,15 +11,17 @@ export type TaskStatus =
   | "COMPLETED"
   | "NEEDS_REWORK"
   | "HIL_PENDING"
-  | "FAILED";
+  | "FAILED"
+  | "CANCELLED";
 
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  PENDING: ["RUNNING"],
-  RUNNING: ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED"],
-  COMPLETED: [],
-  NEEDS_REWORK: ["RUNNING", "FAILED"],
-  HIL_PENDING: ["RUNNING", "FAILED"],
-  FAILED: [],
+  PENDING:      ["RUNNING", "CANCELLED"],
+  RUNNING:      ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED", "CANCELLED"],
+  COMPLETED:    [],
+  NEEDS_REWORK: ["RUNNING", "FAILED", "CANCELLED"],
+  HIL_PENDING:  ["RUNNING", "FAILED", "CANCELLED"],
+  FAILED:       [],
+  CANCELLED:    [],   // terminal — no outgoing transitions
 };
 
 // ─── HIL Queue States ────────────────────────────────────────────────────────
@@ -64,7 +66,7 @@ export interface AgentConfig {
   name: string;
   display_name: string;
   version: string;
-  extends?: string | null;
+  extends?: string | null | undefined;
   llm: AgentLLMConfig;
   role: AgentRole;
   commands?: Record<string, string>;
@@ -89,26 +91,50 @@ export interface TaskOverlays {
   confidence?: {
     enabled?: boolean;
     threshold?: number;
+    metrics?: Array<{
+      type: string;
+      weight?: number;
+      evaluator_agent?: string;
+    }>;
   };
   paired?: {
     enabled?: boolean;
+    driver_agent?: string;
+    challenger_agent?: string;
+    role_switch?: "session" | "subtask" | "checkpoint";
+    max_iterations?: number;
   };
   review?: {
     enabled?: boolean;
+    coder_agent?: string;
+    reviewer_agent?: string;
+    max_iterations?: number;
   };
 }
 
-export interface TaskDefinition {
-  id: string;
+export interface TaskConfig {
   use?: string;
-  agent: string;
-  description: string;
+  agent?: string;
+  description?: string;
   depends_on?: string[];
   outputs?: TaskOutput[];
   exit_conditions?: string[];
   overlays?: TaskOverlays;
   max_rework_iterations?: number;
+  phase?: string;
+  requirement_ids?: string[];
+  acceptance_criteria?: unknown[];
+  scope_excluded?: string[];
   [key: string]: unknown;
+}
+
+export interface ResolvedTaskConfig extends TaskConfig {
+  agent: string;
+  description: string;
+}
+
+export interface TaskDefinition extends ResolvedTaskConfig {
+  id: string;
 }
 
 /** Fields allowed in workflow-level defaults: block. */
@@ -132,7 +158,7 @@ export interface WorkflowConfig {
   name: string;
   description?: string;
   defaults?: WorkflowDefaults;
-  tasks: Record<string, Omit<TaskDefinition, "id">>;
+  tasks: Record<string, ResolvedTaskConfig>;
 }
 
 // ─── State File Types ─────────────────────────────────────────────────────────
@@ -146,6 +172,10 @@ export interface TaskState {
   rework_feedback?: string;
   hil_item_id?: string;
   error?: string;
+  overlay_evidence?: import("./overlay-protocol.ts").OverlayEvidence;
+  /** Persisted after successful completion for status --metrics. */
+  tokens_used?: TokenUsage;
+  cost_usd?: number;
 }
 
 export interface WorkflowState {
@@ -225,9 +255,9 @@ export interface ProjectConfig {
   };
   engine?: {
     max_concurrent_tasks?: number;
-    rate_limit_requests_per_minute?: number;
     cost_budget_per_run_usd?: number;
     cost_enforcement?: CostEnforcement;
+    max_context_tokens?: number;
     context_warning_threshold_pct?: number;
     context_hil_threshold_pct?: number;
   };
@@ -251,6 +281,17 @@ export interface ProjectConfig {
   };
   observability?: {
     log_level?: ObservabilityLogLevel;
+  };
+  standards?: {
+    /**
+     * Paths to coding standards files (relative to project root or absolute).
+     * Merged into the constitution so every agent receives them.
+     * Defaults to all *.md files found under standards/ in the project root.
+     * Set to [] to disable standards enforcement.
+     */
+    paths?: string[];
+    /** When true, a missing standards file is a hard error. Default false. */
+    strict?: boolean;
   };
 }
 
@@ -293,9 +334,16 @@ export type EventType =
   | "gate.pass"
   | "gate.fail"
   | "confidence.computed"
+  | "context.assembled"
   | "context.warning"
   | "cost.warning"
-  | "security.violation";
+  | "security.violation"
+  | "overlay.remote.connecting"
+  | "overlay.remote.connected"
+  | "overlay.remote.invoked"
+  | "overlay.remote.decision"
+  | "overlay.remote.failed"
+  | "overlay.remote.fallback";
 
 export interface ObservabilityEvent {
   type: EventType;
@@ -323,3 +371,7 @@ export interface ExecutionPlan {
   groups: ParallelGroup[];
   all_tasks: string[];
 }
+
+// ─── Remote Overlay Protocol Re-exports ───────────────────────────────────────
+
+export * from "./overlay-protocol.ts";

@@ -143,7 +143,7 @@ observability:
     use: standard-implement
     depends_on: [plan-tasks]
     overlays:
-      paired: { enabled: true }
+      paired: { enabled: false }
       confidence: { enabled: true, threshold: 0.80 }
     max_rework_iterations: 5
 ```

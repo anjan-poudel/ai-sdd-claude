@@ -1,0 +1,69 @@
+spec_hash: "86677546c4eb9aebf73453d9469b77a9bca283be5bf4767678eca2b5886ff367"
+locked_at: "2026-03-10T06:00:00.000Z"
+requirements:
+  - id: FR-001
+    path: specs/FR/FR-001-road-trip-itinerary-builder.md
+    hash: c354fd1300f952476bf60785b59cd4d0bb0a20bc5e82fc17d8a281cf1df52595
+  - id: FR-002
+    path: specs/FR/FR-002-stopover-intelligence.md
+    hash: be9541fa0681404e1990188e153f7d2c390a3f66c9ec024c1959437eb5610569
+  - id: FR-003
+    path: specs/FR/FR-003-user-profile-and-preferences.md
+    hash: 5579fb7217291dbeb00f186cb61061670359ab255ab2d811ba4f4ec518501cb9
+  - id: FR-004
+    path: specs/FR/FR-004-mixed-free-and-paid-content.md
+    hash: b46efb4cc58a90b96206108481abee334ef1b9dd5e011dedf1784b0c98c6bf6b
+  - id: FR-005
+    path: specs/FR/FR-005-poi-indexing.md
+    hash: bc5c6b230fa6813e7900eec4c453c7b80a27766dfe5b2f5ccf5bff93065127f7
+  - id: FR-006
+    path: specs/FR/FR-006-ota-affiliate-integration.md
+    hash: fb88c3c2eaf258bd2c1208f6f9f0253c15aca2b27891a3d0859c002b764d0c9e
+  - id: FR-007
+    path: specs/FR/FR-007-destination-and-attraction-content-pages.md
+    hash: 0659af6bffe39115a3ee82787e1a6c864840e16fb43d78811ccaf181ea204d2b
+  - id: FR-008
+    path: specs/FR/FR-008-demographic-filtering.md
+    hash: 2f2a3ddf8cbd1b9511d888b2c7e8c2b5885f4cf36ac9315a054dd605b9c47a2a
+  - id: FR-009
+    path: specs/FR/FR-009-itinerary-save-and-share.md
+    hash: 0e662c725ff2f26f611027aba2622cedb9ce49502d5597f1748d895bdc5080ad
+  - id: FR-010
+    path: specs/FR/FR-010-display-advertising.md
+    hash: 35e6f2f61d12eb163ed9967fedc49973ba32be008d177ea0bea37815249787ef
+  - id: FR-011
+    path: specs/FR/FR-011-itinerary-social-sharing-and-ugc.md
+    hash: 104eab51832d0d617f5804345fcad8e1569235105c83b40e1c551cf8d059b1de
+  - id: NFR-001
+    path: specs/NFR/NFR-001-route-generation-latency.md
+    hash: 3654cc2a67719a21c050e95c4bb12eff4d8befc3a06664b53fa832cf4b9fea6f
+  - id: NFR-002
+    path: specs/NFR/NFR-002-geospatial-accuracy.md
+    hash: a7d073e658d06eb750817cc3203502b2b73ce93e545909b30cfc5b1ca1946079
+  - id: NFR-003
+    path: specs/NFR/NFR-003-system-availability.md
+    hash: 4ad818b5a685ed271a15a49c8dc47fd8a785a099924349609098c6c0ac7fe883
+  - id: NFR-004
+    path: specs/NFR/NFR-004-poi-data-vendor-independence.md
+    hash: 51ba9375676c95fd9d8e18e3adc8e721bf0f1a29638868bdb6fe022ce19d532b
+  - id: NFR-005
+    path: specs/NFR/NFR-005-data-privacy.md
+    hash: 14d402d24dbdbc61f3817ea0ac0a9c93767a5616a171e67febbae2b80672f292
+  - id: NFR-006
+    path: specs/NFR/NFR-006-authentication-security.md
+    hash: 149d4f74c88b4fdd7fb29d271bf40b9cd0f41f5c32b1beb851cd8dc3af64b232
+  - id: NFR-007
+    path: specs/NFR/NFR-007-affiliate-link-auditability.md
+    hash: 790b76bc2e494e542f0f6d9a1ea53d9957cfc96f62150a61456092bc3e8e5efe
+  - id: NFR-008
+    path: specs/NFR/NFR-008-poi-data-freshness.md
+    hash: e5601b8f3b468c87c16ccca39a44b2db9a183d4d9728aea0f9a4be3c29738fb9
+  - id: NFR-009
+    path: specs/NFR/NFR-009-seo-indexability.md
+    hash: 3e99ac7e54f022fac1e0a7be8a4c7202c48a33eb1c909b506cc730b1358bf359
+  - id: NFR-010
+    path: specs/NFR/NFR-010-page-load-performance.md
+    hash: 52172a1f3a116ca82090faf4ead49e976d57e668cb17f180681bf87c2f5eb00d
+  - id: NFR-011
+    path: specs/NFR/NFR-011-poi-content-quality-standard.md
+    hash: 3a392a90c35b5bb38f1992b93df005d4f8eb48fb496f650edfb6fbbd429a62e0

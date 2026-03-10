@@ -2,7 +2,7 @@
 
 ## Overview
 
-`ai-sdd` orchestrates multi-agent software development workflows. You define a DAG of tasks in YAML, and the framework dispatches each task to an LLM agent (Claude, OpenAI, or mock), managing state, retries, human approval (HIL), and evidence gates.
+`ai-sdd` orchestrates multi-agent software development workflows. You define a DAG of tasks in YAML, and the framework dispatches each task to an LLM agent (Claude, OpenAI, or mock), managing state, retries, human approval (HIL), evidence gates, confidence scoring, agentic review loops, and paired driver/challenger workflows.
 
 ---
 
@@ -10,18 +10,22 @@
 
 1. [Concepts](#concepts)
 2. [Project Setup](#project-setup)
-3. [Workflow YAML Reference](#workflow-yaml-reference)
-4. [Agent Configuration](#agent-configuration)
-5. [Constitution System](#constitution-system)
-6. [Overlays](#overlays)
-7. [Expression DSL](#expression-dsl)
-8. [Human-in-the-Loop (HIL)](#human-in-the-loop-hil)
-9. [Evidence Gate](#evidence-gate)
-10. [CLI Command Reference](#cli-command-reference)
-11. [Adapter Configuration](#adapter-configuration)
-12. [Integration Guides](#integration-guides)
-13. [Security](#security)
-14. [Troubleshooting](#troubleshooting)
+3. [Session Management](#session-management)
+4. [Workflow YAML Reference](#workflow-yaml-reference)
+5. [Agent Configuration](#agent-configuration)
+6. [Constitution System](#constitution-system)
+7. [Standards](#standards)
+8. [Overlays](#overlays)
+9. [Remote Overlays](#remote-overlays)
+10. [Expression DSL](#expression-dsl)
+11. [Human-in-the-Loop (HIL)](#human-in-the-loop-hil)
+12. [Evidence Gate](#evidence-gate)
+13. [CLI Command Reference](#cli-command-reference)
+14. [Adapter Configuration](#adapter-configuration)
+15. [Integration Guides](#integration-guides)
+16. [Security](#security)
+17. [Config Reference](#config-reference)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -31,19 +35,40 @@
 A YAML file defining a DAG (directed acyclic graph) of tasks. Tasks have agents, descriptions, dependencies, and overlays.
 
 ### Agent
-A YAML file defining an LLM persona: model, hyperparameters, role description, responsibilities.
+A YAML file defining an LLM persona: model, hyperparameters, role description, responsibilities. Six defaults are bundled; extend or override per project.
 
 ### Adapter
-The runtime that executes tasks. Adapters: `claude_code`, `openai`, `mock`.
+The runtime that executes tasks. Adapters: `claude_code`, `openai`, `mock`. Roo Code connects via the MCP server — not a runtime adapter.
 
 ### Overlay
-Post-processing around task execution: HIL gate, evidence gate, confidence scoring, agentic review, paired workflow.
+Processing around task execution. Five built-in overlays run in a fixed chain:
+`HIL → Evidence Gate → Agentic Review → Paired Workflow → Confidence`
+
+### Remote Overlay
+An external MCP server called as a post-task gate. Non-blocking by default — verdict goes to evidence without stopping the workflow.
 
 ### Constitution
-A Markdown file (or `CLAUDE.md`) that describes the project to agents. The engine maintains a `## Workflow Artifacts` section automatically.
+A Markdown file that provides project context to every agent. The engine automatically maintains a `## Workflow Artifacts` section in `.ai-sdd/constitution.md`.
+
+### Standards
+Markdown files under `standards/` that inject reusable behavioral and technical guidelines into every agent's context. Auto-discovered alphabetically. `standards/AiAgent.md` is the base standard for all AI agents.
 
 ### HIL Queue
-File-based queue of items awaiting human review. Agents pause at `HIL_PENDING` until a human resolves or rejects via CLI.
+File-based queue of items awaiting human review. Agents pause at `HIL_PENDING` until resolved or rejected via CLI.
+
+### Task States
+
+| State | Meaning |
+|---|---|
+| `PENDING` | Not yet started — waiting for dependencies |
+| `RUNNING` | Dispatched to agent — in progress |
+| `COMPLETED` | Done — output accepted and written |
+| `NEEDS_REWORK` | Output rejected — will retry with feedback |
+| `HIL_PENDING` | Paused — awaiting human approval |
+| `FAILED` | Terminal — max iterations exceeded, HIL rejected, or unrecoverable error |
+| `CANCELLED` | Terminal — explicitly cancelled |
+
+State machine: `PENDING → RUNNING → COMPLETED`, with branches to `NEEDS_REWORK → RUNNING`, `HIL_PENDING → RUNNING`, and `FAILED`/`CANCELLED` as terminal states.
 
 ---
 
@@ -55,27 +80,63 @@ File-based queue of items awaiting human review. Agents pause at `HIL_PENDING` u
 your-project/
 ├── constitution.md          # Project context for agents (created by init)
 ├── CLAUDE.md                # Claude Code orientation (appended by init)
+├── standards/               # Agent behavioral and technical standards
+│   ├── AiAgent.md           # Base standard — applies to all agents
+│   ├── TypeScript.md        # Language-specific (applies if relevant)
+│   └── ...                  # Add more as needed
+├── specs/                   # Workflow artifacts produced by agents
+│   ├── workflow.yaml        # Greenfield workflow (alongside spec docs)
+│   ├── define-requirements.md
+│   ├── design-l1.md
+│   └── <feature>/           # Feature-scoped artifacts
+│       ├── workflow.yaml
+│       └── constitution.md  # Feature-scoped constitution (optional)
 ├── .ai-sdd/
 │   ├── ai-sdd.yaml          # Project config
-│   ├── workflow.yaml        # Custom workflow (optional — overrides workflows/)
+│   ├── active-session        # Current session name (plain text, e.g. "roundtrip-travel")
 │   ├── workflows/
 │   │   └── default-sdd.yaml # Default SDD workflow (copied by init, edit freely)
 │   ├── agents/              # Custom agent overrides (optional)
-│   ├── state/               # Runtime state (auto-managed)
-│   │   ├── workflow-state.json
-│   │   └── hil/             # HIL queue items
-│   └── outputs/             # Task artifacts
-.claude/                     # Created by init --tool claude_code
-├── agents/                  # sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer
-└── skills/
-    ├── sdd-run/SKILL.md     # /sdd-run — full workflow loop
-    └── sdd-status/SKILL.md  # /sdd-status — progress table
+│   └── sessions/            # Per-session runtime state (auto-managed)
+│       ├── default/         # Greenfield session (no --feature)
+│       │   ├── workflow-state.json
+│       │   ├── hil/
+│       │   ├── outputs/
+│       │   ├── pair-sessions/
+│       │   └── review-logs/
+│       └── <feature-name>/  # Feature-scoped session
+│           ├── workflow-state.json
+│           ├── hil/
+│           ├── outputs/
+│           ├── pair-sessions/
+│           └── review-logs/
+└── .claude/                 # Created by init --tool claude_code
+    ├── agents/              # sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer
+    └── skills/
+        ├── sdd-run/SKILL.md
+        └── sdd-status/SKILL.md
 ```
 
-**Workflow lookup order** (first found wins):
-1. `.ai-sdd/workflow.yaml` — explicit single-file override
-2. `.ai-sdd/workflows/default-sdd.yaml` — copied by `ai-sdd init`
-3. Bundled framework default
+### Output Structure
+
+| Context | Artifact location |
+|---|---|
+| Greenfield project | `specs/<task-id>.md` (e.g. `specs/define-requirements.md`) |
+| Feature workflow | `specs/<feature>/<task-id>.md` |
+| Task breakdown | `specs/<task-id>/plan.md` + `specs/<task-id>/tasks/` |
+| Requirements lock | `specs/<task-id>.lock.yaml` — immutable snapshot after BA HIL sign-off |
+| Workflow definition | `specs/workflow.yaml` (greenfield) or `specs/<feature>/workflow.yaml` |
+
+### Workflow Lookup Order
+
+First found wins for `run` and `complete-task`:
+
+1. `--workflow <name>` → `.ai-sdd/workflows/<name>.yaml`
+2. `--feature <name>` → `specs/<feature>/workflow.yaml`
+3. `specs/workflow.yaml` — greenfield workflow alongside spec docs
+4. `.ai-sdd/workflow.yaml` — backward-compat single-file override
+5. `.ai-sdd/workflows/default-sdd.yaml` — copied by `ai-sdd init`
+6. Bundled framework default
 
 ### Minimal `ai-sdd.yaml`
 
@@ -93,11 +154,53 @@ engine:
 overlays:
   hil:
     enabled: true
-    queue_path: ".ai-sdd/state/hil/"
-    notify:
-      on_t2_gate:
-        - "echo 'T2 gate triggered for task: $TASK_ID'"
 ```
+
+---
+
+## Session Management
+
+Sessions let you run multiple concurrent feature workflows from a single `.ai-sdd/` directory. Each session has isolated state, HIL queue, outputs, pair-sessions, and review logs.
+
+### Active session
+
+The active session is stored in `.ai-sdd/active-session` (plain text file). All CLI commands operate on the active session by default. Override with `--feature <name>`.
+
+```bash
+ai-sdd sessions active              # Print active session name
+ai-sdd sessions switch my-feature   # Switch active session
+ai-sdd run --feature my-feature     # Run with explicit feature (also sets active)
+```
+
+### Creating sessions
+
+```bash
+ai-sdd sessions create my-feature   # Create session directory + subdirs
+```
+
+Sessions are also auto-created when you run `ai-sdd run --feature <name>` for the first time.
+
+### Listing sessions
+
+```bash
+ai-sdd sessions list                # Name, task counts, active marker
+ai-sdd sessions list --json         # Machine-readable
+```
+
+### Feature config overrides
+
+A feature can optionally override the central config and agents by placing files under `specs/<feature>/.ai-sdd/`:
+
+```
+specs/<feature>/.ai-sdd/
+├── ai-sdd.yaml          # Deep-merged on top of root config
+├── agents/               # Feature-specific agent overrides
+└── workflows/            # Feature-specific workflow overrides
+```
+
+### Legacy layout
+
+Projects created before multi-session support have a flat `.ai-sdd/state/` directory. This is auto-detected — all commands work unchanged. A warning suggests running a future `ai-sdd migrate` command to upgrade.
 
 ---
 
@@ -119,9 +222,7 @@ tasks:
     depends_on: [implement]
 ```
 
-This 6-line workflow is complete. Every template provides `agent`, `description`,
-`overlays`, and `outputs`. Override any field inline when you need workflow-specific
-context — omit it to use the template default.
+This 6-line workflow is complete. Every template provides `agent`, `description`, `overlays`, and `outputs`. Override any field inline when you need workflow-specific context.
 
 ### Full reference
 
@@ -133,29 +234,45 @@ description: "Optional description"
 # Workflow-level defaults — applied to every task; override per-task as needed
 defaults:
   overlays:
-    hil:         { enabled: false }   # e.g. disable HIL workflow-wide
-    policy_gate: { risk_tier: T1 }    # e.g. set a uniform risk tier
+    hil:         { enabled: false }
+    policy_gate: { risk_tier: T1 }
   max_rework_iterations: 3
 
 tasks:
   <task-id>:
     use: <library-template>        # Optional: pull from data/task-library/
     agent: <agent-name>            # Required (or supplied by use:)
-    description: "What to do"     # Always required
-    depends_on:                    # Optional
+    description: "What to do"
+    depends_on:
       - <other-task-id>
-    outputs:                       # Optional (or supplied by use:)
-      - path: relative/output.md
+    outputs:
+      - path: specs/output.md
         contract: requirements_doc
-    exit_conditions:               # Optional: DSL expressions
+    exit_conditions:               # DSL expressions
       - "review.decision == GO"
-    overlays:                      # Optional: override defaults or library values
+    overlays:
       hil:
         enabled: true
       policy_gate:
         risk_tier: T2
       confidence:
-        threshold: 0.90
+        enabled: true
+        threshold: 0.85
+        metrics:
+          - type: llm_judge
+            evaluator_agent: reviewer
+            weight: 1.0
+      review:
+        enabled: true
+        reviewer_agent: reviewer
+        coder_agent: dev
+        max_iterations: 3
+      paired:
+        enabled: true
+        driver_agent: dev
+        challenger_agent: reviewer
+        role_switch: checkpoint    # session | subtask | checkpoint
+        max_iterations: 3
     max_rework_iterations: 5
 ```
 
@@ -175,14 +292,11 @@ Every task starts with these values before workflow defaults or task overrides a
 engine built-ins → workflow defaults: → task library template (use:) → task inline
 ```
 
-Overlay keys merge individually — setting `hil.enabled: false` does not clobber
-`policy_gate.risk_tier`.
+Overlay keys merge individually — setting `hil.enabled: false` does not clobber `policy_gate.risk_tier`.
 
 ### Task Library (`use:`)
 
-Bundled templates in `data/task-library/`. Templates define the invariant properties
-of each task type (agent role, output contract). Policy overlays (HIL, risk tier) are
-left to the workflow `defaults:` or per-task overrides — templates stay composable.
+Bundled templates in `data/task-library/`. Templates define the invariant properties of each task type. Policy overlays (HIL, risk tier) are left to the workflow `defaults:` or per-task overrides.
 
 **Role primitives** — provide agent, contract and sensible defaults; policy set by workflow:
 
@@ -206,21 +320,11 @@ left to the workflow `defaults:` or per-task overrides — templates stay compos
 | `security-test` | Security testing pass | off | T1 | `review_report` |
 | `final-sign-off` | T2 mandatory production gate | off | **T2** | `review_report` |
 
-Every template provides a default `description`. Override inline to add workflow-specific
-context for the LLM; omit to use the template default.
-
-Output paths use `{{task_id}}` substitution: a task named `design-l1` gets
-`.ai-sdd/outputs/design-l1.md`, `design-component-a` gets
-`.ai-sdd/outputs/design-component-a.md`, etc.
-
-A task using `use:` may omit `description` (uses template default), `agent`, `outputs`,
-and `overlays` (all inherited from the template, merged with workflow defaults).
+Output paths use `{{task_id}}` substitution — a task named `design-l1` gets `specs/design-l1.md`.
 
 `depends_on` is always per-workflow — never part of a template.
 
-**Parallel components → parallel reviews.** When a workflow has N parallel implementation
-tasks, give each its own review task rather than a single combined review. Each review is
-smaller, more focused, and can run in parallel with the others:
+**Parallel reviews.** When a workflow has N parallel implementation tasks, give each its own review task:
 
 ```yaml
   review-component-a:
@@ -232,43 +336,17 @@ smaller, more focused, and can run in parallel with the others:
     depends_on: [implement-component-b]    # parallel with review-component-a
 ```
 
-**Override examples:**
-
-```yaml
-tasks:
-  # Override outputs — api-first produces two files instead of one
-  design-api:
-    use: design-architecture
-    description: "Produce OpenAPI spec and design doc."
-    depends_on: [define-requirements]
-    outputs:
-      - path: .ai-sdd/outputs/openapi.yaml
-      - path: .ai-sdd/outputs/api-design.md
-
-  # Override overlays — regulated workflow needs T2 on architecture
-  design-l1:
-    use: design-architecture
-    description: "Produce L1 architecture with security considerations."
-    depends_on: [define-requirements]
-    overlays:
-      hil:         { enabled: true }
-      policy_gate: { risk_tier: T2 }
-```
-
 ### Dependency Rules
 
-- `depends_on` creates a dependency edge in the DAG.
-- Circular dependencies are detected at load time (Kahn's algorithm).
+- Circular dependencies detected at load time (Kahn's algorithm).
 - Tasks with no `depends_on` run first (parallel group 0).
-- Tasks in the same parallel group run concurrently (up to `max_concurrent_tasks`).
+- Tasks in the same parallel group run concurrently up to `max_concurrent_tasks`.
 
 ---
 
 ## Agent Configuration
 
 ### Default Agents
-
-Six default agents are bundled:
 
 | ID | Role | Default Model |
 |---|---|---|
@@ -295,11 +373,9 @@ llm:
 role:
   description: |
     You are a Rust developer specializing in systems programming.
-    You prioritize safety, performance, and idiomatic Rust.
   expertise:
     - Rust async/await
     - memory safety
-    - CLI tools
   responsibilities:
     - implement features in idiomatic Rust
     - write comprehensive unit tests
@@ -307,17 +383,22 @@ role:
 
 ### Inheritance (`extends`)
 
-`extends: ba` merges all fields from `ba.yaml` into your agent. You only need to specify fields you want to override.
+`extends: ba` merges all fields from `ba.yaml` into your agent. Override only the fields you need to change.
 
 ---
 
 ## Constitution System
 
-The constitution provides project context to agents. It is:
+The constitution provides project context to every agent.
 
-1. **Loaded** from `constitution.md`, `.ai-sdd/constitution.md`, or `CLAUDE.md` in your project root.
-2. **Merged** recursively (framework → root → submodules).
-3. **Extended** with a `## Workflow Artifacts` table after each task completes.
+### Merge order (lowest → highest precedence)
+
+1. `constitution.md` (project root)
+2. `.ai-sdd/constitution.md` (auto-updated with workflow artifact manifest)
+3. `CLAUDE.md`
+4. `specs/<feature>/constitution.md` (feature-scoped, alphabetical by directory)
+5. Submodule `*/constitution.md`
+6. `standards/**/*.md` (appended last — see [Standards](#standards))
 
 ### Example `constitution.md`
 
@@ -331,29 +412,94 @@ Building a REST API for user management using TypeScript and Bun.
 - Runtime: Bun 1.x
 - Language: TypeScript (strict)
 - Database: PostgreSQL 16
-- Auth: JWT (HS256)
 
 ## Conventions
 - All endpoints return `{ data, error }` envelope
-- HTTP status codes: 200, 201, 400, 401, 403, 404, 500
-- Errors include `{ code, message }` in the `error` field
 - Tests use `bun test` with 80% minimum coverage
 ```
 
 ### Artifact Manifest
 
-After each completed task, the engine appends a manifest table:
+After each completed task the engine appends a manifest table to `.ai-sdd/constitution.md`:
 
 ```markdown
 ## Workflow Artifacts
 
 | Task | Path | Contract | Status | Date |
 |------|------|----------|--------|------|
-| define-requirements | `.ai-sdd/outputs/requirements.md` | `requirements_doc` | COMPLETED | 2026-02-28 |
-| design-l1 | `.ai-sdd/outputs/architecture-l1.md` | `architecture_l1` | COMPLETED | 2026-02-28 |
+| define-requirements | `specs/define-requirements.md` | `requirements_doc` | COMPLETED | 2026-03-09 |
+| design-l1 | `specs/design-l1.md` | `architecture_l1` | COMPLETED | 2026-03-09 |
 ```
 
-Agents read this to know what artifacts exist and where to find them.
+Agents read this to know what artifacts exist and where to find them — they do not need to guess paths.
+
+### Requirements Lock
+
+After the BA task completes and HIL is approved, a lock file is written:
+
+```
+specs/define-requirements.lock.yaml
+```
+
+This is an immutable snapshot used by the `repeatability-gate` remote overlay to detect requirement drift in downstream implementation tasks.
+
+---
+
+## Standards
+
+Standards are Markdown files under `standards/` that are auto-discovered (alphabetically) and appended to every agent's context as the `## Coding Standards` section. Every agent — BA, architect, developer, reviewer — receives all standards.
+
+### Base standard: `standards/AiAgent.md`
+
+This is the foundational behavioral standard for all AI agents. It defines:
+
+- **Workflow Orchestration** — plan mode, subagent strategy, self-improvement loop
+- **Task Management** — plan-first, verify-before-done, track progress
+- **Core Principles** — simplicity, no laziness, minimal impact
+
+All other standards are additive on top of this base.
+
+### Technology standards
+
+Add language- or framework-specific standards as additional files:
+
+```
+standards/
+├── AiAgent.md       # Base — all agents
+├── TypeScript.md    # TypeScript conventions
+├── Java.md          # Java conventions
+└── Kotlin.md        # Kotlin conventions
+```
+
+### Controlling which standards apply
+
+```bash
+# Use explicit paths (comma-separated, relative to project root)
+ai-sdd run --standards standards/AiAgent.md,standards/TypeScript.md
+
+# Disable all standards
+ai-sdd run --standards none
+```
+
+Or in `ai-sdd.yaml`:
+
+```yaml
+standards:
+  paths:
+    - standards/AiAgent.md
+    - standards/TypeScript.md
+  strict: false    # true = hard error on missing file (default: warn)
+```
+
+When `paths` is not set, all `*.md` files under `standards/` are auto-discovered.
+
+### Inspect what agents receive
+
+```bash
+ai-sdd constitution --project .
+```
+
+The output shows the full merged context including `<!-- standards: path -->` source markers for each standards file.
 
 ---
 
@@ -365,40 +511,203 @@ Agents read this to know what artifacts exist and where to find them.
 HIL → Evidence Gate → Agentic Review → Paired Workflow → Confidence → Agent Execution
 ```
 
-### Per-Task Override
+`Agentic Review` and `Paired Workflow` are mutually exclusive — enable one or neither, never both on the same task.
+
+---
+
+### HIL Overlay
+
+Pauses the workflow for human approval. Triggers when:
+- `hil.enabled: true` (project default)
+- `risk_tier: T2` (always, regardless of `enabled`)
+- Context window threshold exceeded (direct mode)
 
 ```yaml
-tasks:
-  risky-task:
-    overlays:
-      hil:
-        enabled: true
-        risk_tier: T2          # Force mandatory HIL
-      policy_gate:
-        risk_tier: T2
-      review:
-        enabled: true          # Enable agentic review loop
-      confidence:
-        threshold: 0.90        # Advisory only
+overlays:
+  hil:
+    enabled: true
 ```
 
-### Disabling Overlays
+---
+
+### Evidence Gate (Policy Gate)
+
+Validates that the agent's output meets the declared risk tier before accepting it.
+
+| Tier | Evidence Required |
+|---|---|
+| `T0` | Output files present |
+| `T1` | Output + `tests_passed` or `lint_passed` in handover state |
+| `T2` | T1 + `security_clean` + `operational_ready` + HIL sign-off |
 
 ```yaml
-tasks:
-  low-risk-task:
-    overlays:
-      hil:
-        enabled: false         # Skip HIL for this task
+overlays:
+  policy_gate:
+    risk_tier: T1    # T0 | T1 | T2
 ```
 
-Note: `risk_tier: T2` always triggers HIL regardless of the `enabled` flag.
+Gate fail → `NEEDS_REWORK` with specific failure feedback injected into the next iteration.
+
+---
+
+### Agentic Review Overlay
+
+A full GO/NO_GO coder/reviewer loop. The reviewer evaluates the coder's output against the constitution quality guidelines and acceptance criteria.
+
+```yaml
+overlays:
+  review:
+    enabled: true
+    reviewer_agent: reviewer    # must differ from coder_agent
+    coder_agent: dev            # optional — defaults to task agent
+    max_iterations: 3
+```
+
+**Flow:**
+1. Coder produces output (normal engine dispatch).
+2. Reviewer evaluates: GO or NO_GO with actionable feedback.
+3. GO → `COMPLETED`. Review log written to `.ai-sdd/sessions/<session>/review-logs/<task-id>.json`.
+4. NO_GO → `NEEDS_REWORK`. Feedback injected into coder's next iteration.
+5. Max iterations without GO → `NEEDS_REWORK` with `hil_suggested: true`.
+
+**Reviewer prompt** includes: task description, constitution quality guidelines, acceptance criteria (if defined on the task), coder outputs, and history of prior NO_GO decisions.
+
+**Reviewer response format:**
+```json
+{ "decision": "GO", "feedback": "All criteria met." }
+{ "decision": "NO_GO", "feedback": "...", "quality_checks": { "acceptance_criteria_met": false, "code_standards_met": true, "test_coverage_adequate": false, "security_review_passed": true } }
+```
+
+**Constraint:** `reviewer_agent` ≠ `coder_agent`. Validated at workflow load time.
+
+---
+
+### Paired Workflow Overlay
+
+A driver/challenger loop where one agent produces output and another challenges it. Supports role rotation.
+
+```yaml
+overlays:
+  paired:
+    enabled: true
+    driver_agent: dev           # produces the output
+    challenger_agent: reviewer  # must differ from driver_agent
+    role_switch: checkpoint     # session | subtask | checkpoint
+    max_iterations: 3
+```
+
+**Role switch modes:**
+
+| Mode | Behaviour |
+|---|---|
+| `session` | Driver and challenger are fixed for the entire workflow session |
+| `subtask` | Roles swap after every resolved outcome (approval or rejection) |
+| `checkpoint` | Roles swap at the end of each full review cycle (approval or max_iterations); stable within a cycle |
+
+**Flow:**
+1. Driver produces output (normal engine dispatch).
+2. Challenger reviews and returns `{ "approved": true/false, "feedback": "..." }`.
+3. Approved → `COMPLETED`. Roles switch if `subtask` or `checkpoint`.
+4. Rejected + iterations remaining → `NEEDS_REWORK`. Roles switch if `subtask`.
+5. Max iterations without approval → `NEEDS_REWORK` with `hil_suggested: true`. Roles switch if `checkpoint`.
+
+Session state persisted to `.ai-sdd/sessions/<session>/pair-sessions/<task-id>.json`.
+
+**Constraint:** `challenger_agent` ≠ `driver_agent`. `challenger_agent` required when `enabled: true`. Validated at workflow load time.
+
+---
+
+### Confidence Overlay
+
+Scores the agent's output on a 0–1 scale. Below threshold → `NEEDS_REWORK`.
+
+```yaml
+overlays:
+  confidence:
+    enabled: true
+    threshold: 0.85    # 0.0 = advisory only, default 0.7
+    metrics:
+      - type: keyword_match
+        weight: 0.3
+      - type: llm_judge
+        evaluator_agent: reviewer
+        weight: 0.7
+```
+
+**Metric types:**
+
+| Type | Description |
+|---|---|
+| `keyword_match` | Presence of expected keywords in output |
+| `length_check` | Output length within expected range |
+| `llm_judge` | Dispatches a separate evaluator agent; score from `handover_state.score` (0.0–1.0) |
+
+**`llm_judge` details:** The evaluator agent is dispatched independently. On failure (adapter error) the score defaults to 0.5 neutral — a transient evaluator outage does not cascade into task failure.
+
+**Constraint:** `llm_judge.evaluator_agent` must be set and must differ from the task agent. Validated at workflow load time.
+
+---
+
+## Remote Overlays
+
+Remote overlays call external MCP servers as post-task gates. They are non-blocking by default — results are recorded as overlay evidence without stopping the workflow.
+
+### Configuration
+
+```yaml
+# ai-sdd.yaml
+
+overlay_backends:
+  my-mcp:
+    runtime: mcp
+    command:
+      - node
+      - /path/to/mcp-server/dist/index.js
+    transport: stdio
+    timeout_ms: 10000
+    failure_policy: warn    # warn | fail
+
+remote_overlays:
+  my-gate:
+    backend: my-mcp
+    enabled: true
+    hooks:
+      - post_task
+    phases:
+      - implement          # only runs on tasks in this phase
+    blocking: false
+    config:
+      lockFile: /path/to/lock.yaml
+```
+
+### Built-in remote overlays
+
+Two remote overlays are wired in by default and configured in `ai-sdd.yaml`:
+
+**`repeatability-gate`** — calls `repeatability-mcp-server`. Validates that the implementation matches the frozen requirements lock file (`specs/<task>.lock.yaml`). Run on `implement` phase tasks. Detects requirement drift.
+
+**`coding-standards-gate`** — calls `coding-standards-mcp-server`. Checks that the implementation satisfies coding standards compliance (traceability, scope drift, AC coverage, spec hash). Run on `implement` phase tasks.
+
+Both backends are probed at startup. If the command path is not found, a warning is printed and the overlay is skipped — the workflow continues normally.
+
+### Disabling remote overlays
+
+```bash
+# Disable all remote overlays for this run
+AI_SDD_DISABLE_REMOTE_OVERLAYS=true ai-sdd run
+
+# Disable specific overlay
+AI_SDD_DISABLE_OVERLAY_REPEATABILITY_GATE=true ai-sdd run
+AI_SDD_DISABLE_OVERLAY_CODING_STANDARDS_GATE=true ai-sdd run
+```
+
+Or set `enabled: false` in the `remote_overlays` config entry for a persistent disable.
 
 ---
 
 ## Expression DSL
 
-Used in `exit_conditions`. No `eval()` — hand-written recursive-descent parser.
+Used in `exit_conditions`. No `eval()` — hand-written recursive-descent parser. All expressions are validated at workflow load time.
 
 ### Grammar
 
@@ -420,27 +729,10 @@ review.decision == GO
 confidence_score >= 0.85
 policy_gate.verdict == PASS and hil.resolved == true
 not (review.decision == NO_GO)
-loop.iteration < 5
 pair.challenger_approved == true
 ```
 
-### Context
-
-The evaluator resolves dot-paths in the task's handover state:
-```json
-{
-  "review": { "decision": "GO" },
-  "confidence_score": 0.87,
-  "policy_gate": { "verdict": "PASS" }
-}
-```
-
-Missing paths return `false` — never throw.
-
-### Security
-
-Disallowed constructs: `eval`, `exec`, `__import__`, `os`, `sys`, function calls, list indexing.
-All expressions are validated at workflow load time — invalid expressions prevent the workflow from starting.
+Unquoted uppercase identifiers (`GO`, `PASS`, `NO_GO`) are string literals. Lowercase identifiers are resolved as paths in the handover state. Missing paths return `false` — never throw.
 
 ---
 
@@ -448,24 +740,24 @@ All expressions are validated at workflow load time — invalid expressions prev
 
 ### When HIL Triggers
 
-1. `overlays.hil.enabled: true` (project default) for the task
-2. `risk_tier: T2` (always, regardless of enabled flag)
-3. Context threshold exceeded (95% by default) — in `direct` mode
+1. `overlays.hil.enabled: true` for the task (project default)
+2. `risk_tier: T2` (always, regardless of `enabled`)
+3. Context window threshold exceeded (direct mode only)
 
 ### HIL Workflow
 
-1. Engine creates a HIL item in `.ai-sdd/state/hil/`
+1. Engine creates a HIL item in `.ai-sdd/sessions/<session>/hil/`
 2. Task transitions to `HIL_PENDING`
 3. Human reviews and resolves or rejects:
 
 ```bash
-ai-sdd hil list                       # See pending items
-ai-sdd hil show <id>                  # See full context
-ai-sdd hil resolve <id> --notes "OK"  # Approve → task resumes
+ai-sdd hil list                        # See pending items
+ai-sdd hil show <id>                   # See full context
+ai-sdd hil resolve <id> --notes "OK"   # Approve → task resumes
 ai-sdd hil reject <id> --reason "..."  # Reject → task FAILED
 ```
 
-4. Engine polls the queue and resumes when resolved.
+4. Engine resumes from `HIL_PENDING` directly — the pre-overlay chain does not re-fire on resume (no duplicate HIL items).
 
 ### Notifications
 
@@ -488,22 +780,8 @@ overlays:
 | Tier | Evidence Required |
 |---|---|
 | `T0` | Output files present |
-| `T1` | Output + tests passed + lint clean |
-| `T2` | Output + tests + operational readiness + **human sign-off** |
-
-### Gate Report
-
-After each task, a gate report is written to `.ai-sdd/outputs/gate-report-<task-id>.json`:
-
-```json
-{
-  "task_id": "implement",
-  "risk_tier": "T1",
-  "verdict": "PASS",
-  "failures": [],
-  "timestamp": "2026-02-28T10:00:00Z"
-}
-```
+| `T1` | Output + `tests_passed` or `lint_passed` in handover state |
+| `T2` | T1 + `security_clean` + `operational_ready` + human sign-off |
 
 Gate fail → `NEEDS_REWORK` with feedback injected into the next iteration.
 
@@ -513,25 +791,42 @@ Gate fail → `NEEDS_REWORK` with feedback injected into the next iteration.
 
 ### `run`
 
+State is always auto-loaded from the active session's `workflow-state.json` when it exists. Delete the file to start fresh. `--resume` is a no-op kept for backward compatibility. Using `--feature` sets the active session automatically.
+
 ```bash
-ai-sdd run [options] [--project <dir>]
+ai-sdd run [--project <dir>]
 
 Options:
-  --resume            Resume from last saved state
-  --task <id>         Run specific task + unmet dependencies
-  --dry-run           Print execution plan without LLM calls
-  --step              Pause after each parallel group
+  --task <id>                  Run specific task + unmet dependencies
+  --dry-run                    Print execution plan without LLM calls
+  --step                       Pause after each parallel group
+  --workflow <name>            Load .ai-sdd/workflows/<name>.yaml
+  --feature <name>             Load specs/<feature>/workflow.yaml
+  --standards <paths|none>     Override standards paths (comma-separated or "none")
 ```
 
 ### `status`
 
 ```bash
-ai-sdd status [options] [--project <dir>]
+ai-sdd status [--project <dir>]
 
 Options:
   --json              Full state as JSON
-  --next              Show next ready tasks (use with --json)
-  --metrics           Include cost/token stats
+  --next --json       Next ready tasks only (DAG-aware — blocked PENDING excluded)
+  --metrics           Add Tokens / Cost / Duration columns per task + footer totals
+  --workflow <name>   Workflow name for DAG lookup
+  --feature <name>    Feature/session name (uses active session if omitted)
+```
+
+Example `--metrics` output:
+
+```
+Task                 Status         Iter  Completed   Tokens      Cost
+─────────────────────────────────────────────────────────────────────
+implement            ✓ COMPLETED       1  2026-03-09   5.2s    15342    $0.0234
+review               ✓ COMPLETED       2  2026-03-09   8.1s    12100    $0.0189
+─────────────────────────────────────────────────────────────────────
+Total: 2 | ✓ 2 | ✗ 0 | ○ 0 | ⊘ 0 | tokens: 27442 | cost: $0.0423
 ```
 
 ### `complete-task`
@@ -544,25 +839,25 @@ ai-sdd complete-task \
   --output-path <path> \
   --content-file <tmp-path> \
   [--contract <contract-name>] \
-  [--allow-legacy-untyped-artifacts]
+  [--feature <name>]
 ```
 
-**Transaction steps:**
+**Transaction steps (atomic):**
 1. Path traversal check (`../../` blocked)
 2. Secret detection → `NEEDS_REWORK` if found
 3. Injection detection → abort if found
 4. Artifact contract validation
 5. Atomic file write (tmp + rename)
 6. State transition to `COMPLETED`
-7. Manifest update
+7. Manifest update in `.ai-sdd/constitution.md`
 
 ### `hil`
 
 ```bash
-ai-sdd hil list [--project <dir>]
-ai-sdd hil show <id> [--project <dir>]
-ai-sdd hil resolve <id> [--notes <text>] [--project <dir>]
-ai-sdd hil reject <id> [--reason <text>] [--project <dir>]
+ai-sdd hil [--feature <name>] list [--json] [--project <dir>]
+ai-sdd hil [--feature <name>] show <id> [--project <dir>]
+ai-sdd hil [--feature <name>] resolve <id> [--notes <text>] [--project <dir>]
+ai-sdd hil [--feature <name>] reject <id> [--reason <text>] [--project <dir>]
 ```
 
 ### `validate-config`
@@ -571,13 +866,15 @@ ai-sdd hil reject <id> [--reason <text>] [--project <dir>]
 ai-sdd validate-config [--project <dir>]
 ```
 
-Validates: `ai-sdd.yaml`, workflow YAML (including `use:` and `defaults:` resolution), default agents, project agents.
+Validates: `ai-sdd.yaml`, workflow YAML (including `use:`, `defaults:`, overlay constraints), default agents, custom agents.
 
 ### `constitution`
 
 ```bash
-ai-sdd constitution [--task <id>] [--project <dir>]
+ai-sdd constitution [--task <id>] [--feature <name>] [--project <dir>]
 ```
+
+Prints the full merged constitution to stdout (including standards). Sources printed to stderr. Use to verify exactly what agents receive.
 
 ### `init`
 
@@ -587,13 +884,24 @@ ai-sdd init --tool <name> [--project <dir>]
 Tools: claude_code | codex | roo_code
 ```
 
-### `serve --mcp`
+### `sessions`
 
 ```bash
-ai-sdd serve --mcp [--port 3000] [--project <dir>]
+ai-sdd sessions list [--json] [--project <dir>]       # List all sessions
+ai-sdd sessions active [--json] [--project <dir>]     # Show active session
+ai-sdd sessions switch <name> [--project <dir>]       # Switch active session
+ai-sdd sessions create <name> [--project <dir>]       # Create a new session
 ```
 
-MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `get_constitution`.
+### `serve --mcp`
+
+Stdio transport only. Configure your tool to connect via stdio.
+
+```bash
+ai-sdd serve --mcp [--project <dir>]
+```
+
+MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `reject_hil`, `get_constitution`, `list_sessions`, `get_active_session`, `switch_session`. Tools that operate on workflow state accept an optional `feature` parameter (uses active session if omitted).
 
 ---
 
@@ -604,10 +912,14 @@ MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_it
 ```yaml
 adapter:
   type: claude_code
-  dispatch_mode: delegation  # delegation | direct
+  dispatch_mode: delegation    # delegation | direct
 ```
 
-Requires `claude` CLI on PATH. In `delegation` mode, the engine passes a lightweight task brief to `claude`; the tool manages its own context via CLAUDE.md.
+`delegation` — passes a lightweight task brief to the `claude` CLI; the subagent manages its own context via its `.claude/agents/<name>.md` file.
+
+`direct` — the engine assembles the full prompt and streams the response directly (no subprocess). Used for API-only workflows.
+
+Requires `claude` CLI on PATH.
 
 ### OpenAI Adapter
 
@@ -615,10 +927,10 @@ Requires `claude` CLI on PATH. In `delegation` mode, the engine passes a lightwe
 adapter:
   type: openai
   dispatch_mode: direct
+  model: gpt-4o
 ```
 
 Requires `OPENAI_API_KEY` environment variable (or `api_key` in config).
-Install: `bun add openai`
 
 ### Mock Adapter
 
@@ -627,66 +939,77 @@ adapter:
   type: mock
 ```
 
-For testing. Always returns COMPLETED with empty outputs.
+For testing and dry-runs. Always returns `COMPLETED` with empty outputs.
+
+### Roo Code
+
+`roo_code` is not a runtime adapter. Roo Code agents call the MCP server directly via `ai-sdd serve --mcp`. Set `adapter.type` to `claude_code`, `openai`, or `mock` for programmatic runs.
 
 ---
 
 ## Integration Guides
 
-Choose one integration per project UX (runtime adapter can still differ).
+## Using Claude Code
 
-### Using Claude Code
-
-1. Initialize integration:
+1. Initialize:
 
 ```bash
 ai-sdd init --tool claude_code --project /path/to/project
 ```
 
-This creates the following files in the project:
-- `.claude/agents/` — six subagents (sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer)
-- `.claude/skills/sdd-run/SKILL.md` — orchestrating skill that drives the full workflow
-- `.claude/skills/sdd-status/SKILL.md` — progress table skill
-- `CLAUDE.md` — ai-sdd orientation section appended (or created)
-- `constitution.md` — blank template; fill in your project purpose and standards
-- `.ai-sdd/workflows/default-sdd.yaml` — default workflow; edit to customise
+Creates: `.claude/agents/` (6 subagents), `.claude/skills/sdd-run/`, `.claude/skills/sdd-status/`, `CLAUDE.md`, `constitution.md`, `.ai-sdd/workflows/default-sdd.yaml`.
 
 2. Fill in `constitution.md` with your project context.
-3. Open the project in Claude Code.
-4. Type `/sdd-run` to start the autonomous workflow loop. The skill identifies the next task, spawns the correct agent, handles HIL approvals inline, and loops — no manual `ai-sdd` commands needed.
-5. Type `/sdd-status` to check progress at any time.
+3. Add standards files under `standards/` as needed (at minimum keep `AiAgent.md`).
+4. Open the project in Claude Code.
+5. Type `/sdd-run` — the skill identifies the next task, spawns the correct subagent, handles HIL approvals inline, and loops.
+6. Type `/sdd-status` to check progress at any time.
 
-### Using Codex CLI
+## Using Codex CLI
 
-1. Initialize integration:
+1. Initialize:
 
 ```bash
 ai-sdd init --tool codex --project /path/to/project
 ```
 
-2. Start `codex` from the project root (it reads `AGENTS.md`).
-3. Follow the same operator loop:
-   - `ai-sdd status --next --json`
-   - `ai-sdd run --resume`
-   - `ai-sdd hil list --json`
-4. Continue until no READY tasks remain.
+2. Start `codex` from the project root (reads `AGENTS.md`).
+3. Operator loop:
+   ```bash
+   ai-sdd status --next --json       # find ready tasks
+   ai-sdd run                        # run next available tasks
+   ai-sdd hil list --json            # check for pending approvals
+   ```
+4. Continue until no PENDING tasks remain.
 
-### Using Roo Code
+## Using Roo Code
 
-1. Initialize integration:
+1. Initialize:
 
 ```bash
 ai-sdd init --tool roo_code --project /path/to/project
 ```
 
-2. Start MCP server:
+Creates: `.roomodes` (6 agent modes with MCP group), `.roo/mcp.json` (points to `ai-sdd serve --mcp`).
+
+2. Start MCP server (or let Roo Code auto-start via `.roo/mcp.json`):
 
 ```bash
-ai-sdd serve --mcp --port 3000
+ai-sdd serve --mcp
 ```
 
-3. Open Roo Code and select a mode (`sdd-ba`, `sdd-architect`, `sdd-pe`, `sdd-le`, `sdd-dev`, `sdd-reviewer`).
-4. Execute tasks through MCP tools (`get_next_task`, `get_constitution`, `complete_task`, `list_hil_items`, `resolve_hil`).
+3. Select the appropriate mode in Roo Code (e.g. `sdd-ba` for requirements, `sdd-dev` for implementation).
+
+4. Agent tool sequence:
+
+```
+get_next_task      → find assigned work (DAG-aware)
+get_constitution   → fetch project context
+[do the work]
+complete_task      → submit artifact (atomic, validated)
+list_hil_items     → check pending HIL approvals
+resolve_hil        → approve a HIL item
+```
 
 ---
 
@@ -694,34 +1017,30 @@ ai-sdd serve --mcp --port 3000
 
 ### Injection Detection
 
-Scans task inputs for 20+ injection patterns. Configure sensitivity:
+Scans task inputs for 20+ injection patterns:
 
 ```yaml
 security:
-  injection_detection_level: quarantine  # pass | warn | quarantine
+  injection_detection_level: quarantine    # pass | warn | quarantine
 ```
 
-- `pass`: log and continue
-- `warn`: log warning, continue
-- `quarantine`: block input, abort task
+| Level | Behaviour |
+|---|---|
+| `pass` | Log and continue |
+| `warn` | Log warning, continue |
+| `quarantine` | Block input, abort task |
 
 ### Secret Detection (Output)
 
-Scans task outputs for secrets (AWS keys, API tokens, private keys, JWTs, etc.).
-If found → task goes to `NEEDS_REWORK` (never written to disk).
-The agent must remove the secret and resubmit.
-
-This is **blocking** and cannot be disabled.
+Scans task outputs for secrets (AWS keys, API tokens, private keys, JWTs, etc.). If found → `NEEDS_REWORK` (output never written to disk). The agent must remove the secret and resubmit. Cannot be disabled.
 
 ### Log Sanitization
 
-All observability events are sanitized: secrets are replaced with `[REDACTED:TYPE]`.
-This is non-blocking and applies to logs only (not to task output).
+All observability events sanitized: secrets replaced with `[REDACTED:TYPE]`. Applies to logs only, not task output.
 
 ### Path Traversal
 
-`complete-task` rejects any `--output-path` that resolves outside the project directory.
-`../../etc/passwd` → error.
+`complete-task` rejects any `--output-path` resolving outside the project root. `../../etc/passwd` → error.
 
 ---
 
@@ -732,38 +1051,42 @@ This is non-blocking and applies to logs only (not to task output).
 ```yaml
 version: "1"
 
-workflow: default-sdd           # Workflow name
+workflow: default-sdd
 
 adapter:
   type: claude_code             # claude_code | openai | roo_code | mock
-  dispatch_mode: direct         # direct | delegation
+  dispatch_mode: delegation     # direct | delegation
 
 engine:
   max_concurrent_tasks: 3
-  rate_limit_requests_per_minute: 20
   cost_budget_per_run_usd: 10.00
   cost_enforcement: pause       # warn | pause | stop
-  context_warning_threshold_pct: 80
-  context_hil_threshold_pct: 95
+  max_context_tokens: 180000
 
 overlays:
   hil:
     enabled: true
-    queue_path: ".ai-sdd/state/hil/"
+    queue_path: ".ai-sdd/sessions/<active>/hil/"
     poll_interval_seconds: 5
     notify:
       on_created: []
       on_t2_gate: []
 
 security:
-  secret_patterns: []           # Additional regex patterns
-  injection_detection_level: warn
+  secret_patterns: []
+  injection_detection_level: warn    # pass | warn | quarantine
 
 constitution:
-  strict_parse: true            # false = warn+skip on errors
+  strict_parse: true
 
 observability:
-  log_level: INFO               # DEBUG | INFO | WARN | ERROR
+  log_level: INFO                    # DEBUG | INFO | WARN | ERROR
+
+standards:
+  paths:                             # omit for auto-discovery from standards/
+    - standards/AiAgent.md
+    - standards/TypeScript.md
+  strict: false                      # true = hard error on missing file
 ```
 
 ### Config Merge Order
@@ -777,39 +1100,62 @@ observability:
 ### Schema version mismatch
 
 ```
-schema version mismatch: expected '1', got '2'; run ai-sdd migrate
+schema version mismatch: expected '1', got '2'
 ```
-→ The state file or config was written by a different version. Run `ai-sdd migrate` (Phase 5).
+→ State file written by a different version. Manual recovery: open `.ai-sdd/sessions/<session>/workflow-state.json` (or `.ai-sdd/state/workflow-state.json` for legacy layout), set `schema_version` to `"1"`.
 
 ### No workflow found
 
 ```
 No workflow found. Create .ai-sdd/workflow.yaml or run: ai-sdd init
 ```
-→ Run `ai-sdd init --tool <name>` first. This copies `default-sdd.yaml` to
-`.ai-sdd/workflows/`. To use a custom workflow, create `.ai-sdd/workflow.yaml`.
+→ Run `ai-sdd init --tool <name>` first.
 
 ### Dependency cycle
 
 ```
 Workflow contains a dependency cycle involving tasks: task-a, task-b
 ```
-→ Fix the `depends_on` chains in your workflow YAML.
+→ Fix `depends_on` chains in workflow YAML.
 
 ### DSL parse error at load
 
 ```
-DSL parse error in task 'my-task' exit_condition: ParseError at position 5: ...
+DSL parse error in task 'my-task' exit_condition: ParseError at position 5
 ```
 → Fix the `exit_conditions` expression. See [Expression DSL](#expression-dsl).
 
+### Reviewer independence violation
+
+```
+Task 'implement': paired overlay enabled but challenger_agent equals driver_agent. Reviewer independence required.
+```
+→ `challenger_agent` must be a different agent from `driver_agent`. Same applies to `review.reviewer_agent` vs `coder_agent`.
+
 ### HIL item stuck
 
-If a HIL item is stuck in PENDING, use `ai-sdd hil list` to find it and `ai-sdd hil resolve <id>` to unblock.
+```bash
+ai-sdd hil list     # find the item
+ai-sdd hil resolve <id> --notes "approved"
+```
 
 ### Secret in task output
 
 ```
 Secret detected in task output (openai_key). Task set to NEEDS_REWORK.
 ```
-→ The agent produced output containing a secret. It will be asked to resubmit without the secret.
+→ Agent will be asked to resubmit without the secret.
+
+### Remote overlay backend not found
+
+```
+[WARN] repeatability-gate: backend command not found — overlay skipped
+```
+→ The MCP server binary is not built or not at the configured path. Build it or disable the overlay with `AI_SDD_DISABLE_OVERLAY_REPEATABILITY_GATE=true`.
+
+### Standards file not found
+
+```
+[WARN] Standards file not found: standards/MyStandard.md
+```
+→ File path in `standards.paths` does not exist. Fix the path or set `standards.strict: false` to warn-and-skip.

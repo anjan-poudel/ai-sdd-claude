@@ -1,0 +1,68 @@
+version: "1"
+
+adapter:
+  type: claude_code
+
+engine:
+  max_concurrent_tasks: 3
+  cost_budget_per_run_usd: 10.00
+
+overlays:
+  hil:
+    enabled: true
+
+# Remote overlay backends — MCP servers wired in via native remote overlay support.
+# Each backend is probed at startup; if its command is not found the overlay is skipped
+# with a console warning rather than failing the run.
+#
+# Env-var overrides (useful when backends are configured at user level but not wanted here):
+#   AI_SDD_DISABLE_REMOTE_OVERLAYS=true       skip ALL remote overlays
+#   AI_SDD_DISABLE_OVERLAY_<NAME>=true        skip a specific overlay (NAME uppercased, hyphens→underscores)
+#   e.g. AI_SDD_DISABLE_OVERLAY_REPEATABILITY_GATE=true
+#        AI_SDD_DISABLE_OVERLAY_CODING_STANDARDS_GATE=true
+
+overlay_backends:
+  repeatability-mcp:
+    runtime: mcp
+    # node is a system command (assumed available); the script path is probed for existence.
+    # No tool: set — ai-sdd auto-discovers overlay_invoke via tools/list fingerprint at startup.
+    command:
+      - node
+      - /Users/anjan/workspace/projects/ai/repeatability-mcp-server/dist/index.js
+    transport: stdio
+    timeout_ms: 10000
+    failure_policy: warn   # transport errors are non-blocking warnings
+
+  coding-standards-mcp:
+    runtime: mcp
+    # script path probed — warning printed if not yet built.
+    # No tool: set — ai-sdd auto-discovers overlay_invoke via tools/list fingerprint at startup.
+    command:
+      - node
+      - /Users/anjan/workspace/projects/coding-standards/tools/mcp-server/dist/index.js
+    transport: stdio
+    timeout_ms: 10000
+    failure_policy: warn
+
+remote_overlays:
+  repeatability-gate:
+    backend: repeatability-mcp
+    enabled: true
+    hooks:
+      - post_task
+    phases:
+      - implement
+    blocking: false          # non-blocking: verdict goes to evidence but does not gate the task
+    config:
+      # Absolute path to the requirements lock file for this project.
+      # Passed as config.lockFile to the overlay_invoke tool.
+      lockFile: /Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/define-requirements.lock.yaml
+
+  coding-standards-gate:
+    backend: coding-standards-mcp
+    enabled: true
+    hooks:
+      - post_task
+    phases:
+      - implement
+    blocking: false

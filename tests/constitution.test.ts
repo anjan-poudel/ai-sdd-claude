@@ -53,6 +53,46 @@ describe("ConstitutionResolver", () => {
     const forTask = resolver.resolveForTask("task-1");
     expect(forTask.content).toBe(full.content);
   });
+
+  it("includes feature constitutions from specs/*/constitution.md", () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    writeFileSync(join(TEST_DIR, "constitution.md"), "# Root Constitution", "utf-8");
+    const featureDir = join(TEST_DIR, "specs", "auth");
+    mkdirSync(featureDir, { recursive: true });
+    writeFileSync(join(featureDir, "constitution.md"), "# Feature: Auth", "utf-8");
+
+    const resolver = new ConstitutionResolver({ project_path: TEST_DIR, strict_parse: false });
+    const result = resolver.resolve();
+    expect(result.content).toContain("Root Constitution");
+    expect(result.content).toContain("Feature: Auth");
+    expect(result.sources).toContain(join(featureDir, "constitution.md"));
+  });
+
+  it("feature constitutions are merged in alphabetical order by directory name", () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    writeFileSync(join(TEST_DIR, "constitution.md"), "# Root", "utf-8");
+    mkdirSync(join(TEST_DIR, "specs", "b-payments"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "specs", "b-payments", "constitution.md"), "# Payments Feature", "utf-8");
+    mkdirSync(join(TEST_DIR, "specs", "a-auth"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "specs", "a-auth", "constitution.md"), "# Auth Feature", "utf-8");
+
+    const resolver = new ConstitutionResolver({ project_path: TEST_DIR, strict_parse: false });
+    const result = resolver.resolve();
+    const authIdx = result.content.indexOf("Auth Feature");
+    const paymentsIdx = result.content.indexOf("Payments Feature");
+    expect(authIdx).toBeLessThan(paymentsIdx);
+  });
+
+  it("empty specs dir does not break resolve", () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    writeFileSync(join(TEST_DIR, "constitution.md"), "# Root", "utf-8");
+    mkdirSync(join(TEST_DIR, "specs"), { recursive: true });
+
+    const resolver = new ConstitutionResolver({ project_path: TEST_DIR, strict_parse: false });
+    const result = resolver.resolve();
+    expect(result.content).toContain("Root");
+    expect(result.warnings).toHaveLength(0);
+  });
 });
 
 describe("ManifestWriter", () => {

@@ -21,7 +21,7 @@ import { OutputSanitizer } from "../../security/output-sanitizer.ts";
 import { InputSanitizer } from "../../security/input-sanitizer.ts";
 import { ArtifactRegistry } from "../../artifacts/registry.ts";
 import { ArtifactValidator } from "../../artifacts/validator.ts";
-import { loadProjectConfig } from "../config-loader.ts";
+import { resolveSession } from "../../core/session-resolver.ts";
 
 export function registerCompleteTaskCommand(program: Command): void {
   program
@@ -32,14 +32,20 @@ export function registerCompleteTaskCommand(program: Command): void {
     .requiredOption("--content-file <tmp>", "Temp file holding artifact content")
     .option("--contract <name>", "Artifact contract to validate against")
     .option("--allow-legacy-untyped-artifacts", "Skip contract validation for untyped artifacts")
+    .option("--feature <name>", "Feature name (loads specs/<name>/workflow.yaml)")
     .option("--project <path>", "Project directory", process.cwd())
     .action(async (options) => {
       const projectPath = resolve(options.project as string);
       const taskId = options.task as string;
+      const featureName = options.feature as string | undefined;
       const outputPathRaw = options.outputPath as string;
       const contentFile = resolve(options.contentFile as string);
       const contractName = options.contract as string | undefined;
       const allowLegacy = Boolean(options.allowLegacyUntypedArtifacts);
+
+      // Resolve session for path computation
+      const session = resolveSession({ projectPath, featureName });
+      const config = session.config;
 
       // ─── Step 1: Validate output path ────────────────────────────────────────
       if (!existsSync(contentFile)) {
@@ -59,12 +65,13 @@ export function registerCompleteTaskCommand(program: Command): void {
       }
 
       // Validate output path is declared in the task definition
-      const declaredOutputs = loadDeclaredOutputs(projectPath, taskId);
+      const declaredOutputs = loadDeclaredOutputs(projectPath, taskId, featureName, session.workflowPath);
       if (declaredOutputs !== null && declaredOutputs.length > 0) {
         const normalizedRel = rel.replace(/\\/g, "/");
         const allowed = declaredOutputs.some((p) => {
-          const normalizedDeclared = p.replace(/\\/g, "/");
-          return normalizedRel === normalizedDeclared;
+          const norm = p.replace(/\\/g, "/");
+          if (norm.endsWith("/")) return normalizedRel.startsWith(norm);
+          return normalizedRel === norm;
         });
         if (!allowed) {
           console.error(
@@ -87,8 +94,7 @@ export function registerCompleteTaskCommand(program: Command): void {
           `Task set to NEEDS_REWORK. Remove secrets and resubmit.`,
         );
         // Mark task as NEEDS_REWORK
-        const stateDir = resolve(projectPath, ".ai-sdd", "state");
-        const stateManager = new StateManager(stateDir, "workflow", projectPath);
+        const stateManager = new StateManager(session.stateDir, "workflow", projectPath);
         stateManager.load();
         try {
           stateManager.transition(taskId, "NEEDS_REWORK", {
@@ -100,7 +106,6 @@ export function registerCompleteTaskCommand(program: Command): void {
         process.exit(1);
       }
 
-      const config = loadProjectConfig(projectPath);
       const inputSanitizer = new InputSanitizer(
         config.security?.injection_detection_level ?? "warn",
       );
@@ -112,8 +117,7 @@ export function registerCompleteTaskCommand(program: Command): void {
           `Task set to NEEDS_REWORK. Remove injection patterns and resubmit.`,
         );
         // Mark task as NEEDS_REWORK (mirrors the secret detection branch above)
-        const injectStateDir = resolve(projectPath, ".ai-sdd", "state");
-        const injectStateManager = new StateManager(injectStateDir, "workflow", projectPath);
+        const injectStateManager = new StateManager(session.stateDir, "workflow", projectPath);
         injectStateManager.load();
         try {
           injectStateManager.transition(taskId, "NEEDS_REWORK", {
@@ -165,11 +169,13 @@ export function registerCompleteTaskCommand(program: Command): void {
       renameSync(tmpPath, outputPath);
 
       // ─── Step 5: Update workflow state ────────────────────────────────────────
-      const stateDir = resolve(projectPath, ".ai-sdd", "state");
-      const stateManager = new StateManager(stateDir, "workflow", projectPath);
+      const stateManager = new StateManager(session.stateDir, "workflow", projectPath);
       stateManager.load();
       stateManager.transition(taskId, "COMPLETED", {
-        outputs: [{ path: rel, contract: contractName }],
+        outputs: [{
+          path: rel,
+          ...(contractName !== undefined && { contract: contractName }),
+        }],
       });
 
       // ─── Step 6: Update constitution manifest ─────────────────────────────────
@@ -184,9 +190,20 @@ export function registerCompleteTaskCommand(program: Command): void {
  * Load the declared output paths for a task from the workflow YAML.
  * Returns the list of declared paths, null if the workflow cannot be loaded,
  * or an empty array if the task has no declared outputs.
+ *
+ * Uses the session-resolved workflow path if available, then falls back to
+ * the standard search order.
  */
-function loadDeclaredOutputs(projectPath: string, taskId: string): string[] | null {
+function loadDeclaredOutputs(
+  projectPath: string,
+  taskId: string,
+  featureName?: string,
+  resolvedWorkflowPath?: string | null,
+): string[] | null {
   const wfPaths = [
+    ...(resolvedWorkflowPath ? [resolvedWorkflowPath] : []),
+    ...(featureName ? [resolve(projectPath, "specs", featureName, "workflow.yaml")] : []),
+    resolve(projectPath, "specs", "workflow.yaml"),
     resolve(projectPath, ".ai-sdd", "workflow.yaml"),
     resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
   ];

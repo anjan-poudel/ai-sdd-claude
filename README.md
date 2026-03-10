@@ -132,11 +132,10 @@ overlays:
 
 ### `ai-sdd run`
 
-Execute or resume a workflow.
+Execute or resume a workflow. State is always auto-loaded if `workflow-state.json` exists — delete it to start fresh.
 
 ```bash
-ai-sdd run                          # Run from beginning
-ai-sdd run --resume                 # Resume from last state
+ai-sdd run                          # Run (resumes automatically if state file exists)
 ai-sdd run --task design-l1        # Run specific task + unmet deps
 ai-sdd run --dry-run               # Print plan without executing
 ai-sdd run --step                  # Pause after each task group
@@ -197,10 +196,10 @@ ai-sdd init --tool roo_code
 
 ### `ai-sdd serve --mcp`
 
-Start as MCP server:
+Start as MCP server (stdio transport — no `--port`):
 
 ```bash
-ai-sdd serve --mcp --port 3000
+ai-sdd serve --mcp
 ```
 
 ### `ai-sdd migrate`
@@ -314,23 +313,31 @@ schema version mismatch; run ai-sdd migrate
 
 ## MCP Integration
 
-The MCP server exposes 6 tools that delegate to the `ai-sdd` CLI:
+The MCP server exposes 7 tools that delegate to the `ai-sdd` CLI:
 
-- `get_next_task` — next ready tasks
+- `get_next_task` — next ready tasks (DAG-aware: only unblocked PENDING tasks)
 - `get_workflow_status` — full workflow state
 - `complete_task` — atomic task completion
 - `list_hil_items` — pending HIL queue
 - `resolve_hil` — approve HIL item
+- `reject_hil` — reject HIL item
 - `get_constitution` — project constitution
 
-Start with: `ai-sdd serve --mcp`
+Start with: `ai-sdd serve --mcp` (stdio transport)
+
+## Further Reading
+
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — full operator guide (setup, daily loop, HIL, troubleshooting)
+- [specs/CONTRACTS.md](specs/CONTRACTS.md) — canonical enum values and invariants
+- [specs/](specs/) — original design specs and task breakdowns
 
 ## Development
 
 ```bash
 bun install                         # Install dependencies
-bun test                            # Run full test suite (195 tests)
+bun test                            # Run full test suite
 bun test tests/dsl.test.ts          # Run DSL tests only
+bun run typecheck                   # TypeScript strict check
 bun run src/cli/index.ts --help    # Verify CLI works
 ```
 

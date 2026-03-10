@@ -1,0 +1,91 @@
+version: "1"
+name: rms-ecosystem-integration
+description: |
+  Prepare repeatability-mcp-server (RMS) for its role as Traceability Engine
+  in the three-project ecosystem. Adds lock file import, convenience query
+  tools, CS schema compatibility tests, and ecosystem documentation.
+  Target repo: /Users/anjan/workspace/projects/ai/repeatability-mcp-server
+  Specs: specs/rms-ecosystem-integration/
+  Ecosystem: docs/ecosystem-proposal-opus.md
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T0 }
+    hil: { enabled: true }
+  max_rework_iterations: 3
+
+tasks:
+
+  # ── Phase 1: Lock File Importer ─────────────────────────────────────────
+
+  rms-001:
+    agent: dev
+    description: |
+      Build GraphBuilder.fromYAML() in packages/requirement-lock-server/src/graph/.
+      Parse requirements.lock.yaml → populate InMemoryGraph with correct nodes
+      and edges. Handle missing sections, duplicates, malformed YAML.
+      Add round-trip test: export → import → export = identical.
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-001-lock-file-importer.md
+    overlays:
+      policy_gate: { risk_tier: T1 }
+
+  # ── Phase 2: Convenience Lock Tools ─────────────────────────────────────
+
+  rms-002:
+    agent: dev
+    depends_on: [rms-001]
+    description: |
+      Add 6 lock_* MCP tools to requirement-lock-server: lock_validate,
+      lock_find_gaps, lock_impact_analysis, lock_coverage_report,
+      lock_dependency_chain, lock_available_tasks. Each reads lockFile,
+      builds graph via GraphBuilder.fromYAML(), runs query, returns JSON.
+      Register in index.ts alongside existing graph_* tools.
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-002-convenience-lock-tools.md
+    overlays:
+      policy_gate: { risk_tier: T1 }
+
+  # ── Phase 3: Schema Compatibility ───────────────────────────────────────
+
+  rms-003:
+    agent: dev
+    depends_on: [rms-001]
+    description: |
+      Add CS schema compatibility test. Verify RequirementsLockExporter output
+      matches CS-defined schema structure. Add round-trip test: export → import
+      → export = semantically identical. Validate metadata.version and hash.
+      Copy CS schema reference as test fixture.
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-003-cs-schema-compatibility.md
+
+  # ── Phase 4: Documentation & Testing ────────────────────────────────────
+
+  rms-004:
+    agent: dev
+    description: |
+      Rewrite README.md with ecosystem context. Explain RMS role as Traceability
+      Engine. Document all MCP tools (graph_* and lock_*). Show both session-based
+      and file-based workflows. Explain lock file ownership split (CS schema,
+      RMS tooling, ai-sdd lifecycle).
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-004-readme-rewrite.md
+    overlays:
+      hil: { enabled: false }
+
+  rms-005:
+    agent: dev
+    depends_on: [rms-002]
+    description: |
+      Add 4 MCP resource endpoints: rms://docs/node-types, edge-types,
+      validation-rules, query-patterns. Each returns markdown documentation
+      generated from code or maintained as static files. Read-only.
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-005-mcp-resource-endpoints.md
+    overlays:
+      hil: { enabled: false }
+
+  rms-006:
+    agent: dev
+    depends_on: [rms-002]
+    description: |
+      Add ai-sdd integration test. Simulate full agent workflow: lock_validate →
+      lock_find_gaps → lock_coverage_report → lock_impact_analysis →
+      lock_available_tasks. Test error handling. Verify session-based and
+      file-based results agree. Create interop fixture lock file.
+      Spec: specs/rms-ecosystem-integration/tasks/RMS-006-ai-sdd-integration-test.md

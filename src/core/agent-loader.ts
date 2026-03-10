@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import yaml from "js-yaml";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type { AgentConfig } from "../types/index.ts";
 
@@ -40,22 +40,23 @@ export const AgentConfigSchema = z.object({
 
 function deepMerge<T extends Record<string, unknown>>(base: T, override: Partial<T>): T {
   const result = { ...base } as T;
+  const baseRecord = base as unknown as Record<string, unknown>;
+  const resultRecord = result as unknown as Record<string, unknown>;
   for (const [key, val] of Object.entries(override)) {
-    const k = key as keyof T;
     if (
       val !== null &&
       val !== undefined &&
       typeof val === "object" &&
       !Array.isArray(val) &&
-      typeof (base as Record<string, unknown>)[key] === "object" &&
-      (base as Record<string, unknown>)[key] !== null
+      typeof baseRecord[key] === "object" &&
+      baseRecord[key] !== null
     ) {
-      (result as Record<string, unknown>)[key] = deepMerge(
-        (base as Record<string, unknown>)[key] as Record<string, unknown>,
+      resultRecord[key] = deepMerge(
+        baseRecord[key] as Record<string, unknown>,
         val as Record<string, unknown>,
       );
     } else if (val !== undefined) {
-      (result as Record<string, unknown>)[key] = val;
+      resultRecord[key] = val;
     }
   }
   return result;
@@ -101,8 +102,36 @@ export class AgentRegistry {
           .join("\n")}`,
       );
     }
-    this.rawConfigs.set(result.data.name, result.data);
-    return result.data;
+    const normalizedHyperparameters = normalizeHyperparameters(
+      result.data.llm.hyperparameters as Record<string, unknown> | undefined,
+    );
+    const llmConfig: AgentConfig["llm"] = {
+      provider: result.data.llm.provider,
+      model: result.data.llm.model,
+    };
+    if (normalizedHyperparameters !== undefined) {
+      llmConfig.hyperparameters = normalizedHyperparameters;
+    }
+
+    const normalized: AgentConfig = {
+      name: result.data.name,
+      display_name: result.data.display_name,
+      version: result.data.version,
+      llm: llmConfig,
+      role: {
+        description: result.data.role.description,
+        ...(result.data.role.expertise !== undefined && {
+          expertise: result.data.role.expertise,
+        }),
+        ...(result.data.role.responsibilities !== undefined && {
+          responsibilities: result.data.role.responsibilities,
+        }),
+      },
+      ...(result.data.extends !== undefined && { extends: result.data.extends }),
+      ...(result.data.commands !== undefined && { commands: result.data.commands }),
+    };
+    this.rawConfigs.set(normalized.name, normalized);
+    return normalized;
   }
 
   /**
@@ -111,8 +140,7 @@ export class AgentRegistry {
    */
   loadProjectAgents(projectAgentsDir: string): void {
     if (!existsSync(projectAgentsDir)) return;
-    const { readdirSync } = require("fs");
-    for (const file of readdirSync(projectAgentsDir) as string[]) {
+    for (const file of readdirSync(projectAgentsDir)) {
       if (file.endsWith(".yaml") || file.endsWith(".yml")) {
         this.loadFile(join(projectAgentsDir, file));
       }
@@ -139,7 +167,10 @@ export class AgentRegistry {
     let resolved: AgentConfig;
     if (raw.extends) {
       const base = this.resolve(raw.extends, useDefaults);
-      resolved = deepMerge(base as Record<string, unknown>, raw as unknown as Record<string, unknown>) as unknown as AgentConfig;
+      resolved = deepMerge(
+        base as unknown as Record<string, unknown>,
+        raw as unknown as Record<string, unknown>,
+      ) as unknown as AgentConfig;
       // Always use the extending agent's name, not the base name
       resolved = { ...resolved, name: raw.name, display_name: raw.display_name };
     } else {
@@ -179,4 +210,22 @@ export function createAgentRegistry(options: {
     registry.loadProjectAgents(options.projectAgentsDir);
   }
   return registry;
+}
+function normalizeHyperparameters(
+  hyperparameters: Record<string, unknown> | undefined,
+): AgentConfig["llm"]["hyperparameters"] | undefined {
+  if (!hyperparameters) return undefined;
+
+  const normalized: NonNullable<AgentConfig["llm"]["hyperparameters"]> = {};
+  if (typeof hyperparameters.temperature === "number") normalized.temperature = hyperparameters.temperature;
+  if (typeof hyperparameters.max_tokens === "number") normalized.max_tokens = hyperparameters.max_tokens;
+  if (typeof hyperparameters.top_p === "number") normalized.top_p = hyperparameters.top_p;
+
+  for (const [key, value] of Object.entries(hyperparameters)) {
+    if (value !== undefined && !(key in normalized)) {
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
 }
