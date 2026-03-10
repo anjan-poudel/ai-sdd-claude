@@ -7,39 +7,8 @@ import { resolve } from "path";
 import { existsSync } from "fs";
 import { StateManager } from "../../core/state-manager.ts";
 import { WorkflowLoader } from "../../core/workflow-loader.ts";
-import { loadProjectConfig } from "../config-loader.ts";
 import type { TaskStatus } from "../../types/index.ts";
-
-/** Resolve the workflow name using the same search order as the run command. */
-function resolveWorkflowName(
-  projectPath: string,
-  configWorkflowName?: string,
-  cliWorkflowName?: string,
-): string {
-  const cliPath = cliWorkflowName
-    ? resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`)
-    : null;
-  const wfPaths = [
-    ...(cliPath ? [cliPath] : []),
-    resolve(projectPath, ".ai-sdd", "workflow.yaml"),
-    ...(configWorkflowName
-      ? [resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)]
-      : []),
-    resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
-  ];
-  for (const p of wfPaths) {
-    if (existsSync(p)) {
-      try {
-        const wf = WorkflowLoader.loadFile(p);
-        return wf.config.name;
-      } catch {
-        // Malformed YAML — skip
-      }
-    }
-  }
-  // Fall back to the name stored in the state file (load() will override the constructor value)
-  return "workflow";
-}
+import { resolveSession } from "../../core/session-resolver.ts";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -65,18 +34,29 @@ export function registerStatusCommand(program: Command): void {
     .option("--next", "Output next ready tasks (use with --json for MCP)")
     .option("--metrics", "Include cost/token/duration per task")
     .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
+    .option("--feature <name>", "Feature/session name")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
-      const stateDir = resolve(projectPath, ".ai-sdd", "state");
 
-      const config = loadProjectConfig(projectPath);
-      const workflowName = resolveWorkflowName(
+      const session = resolveSession({
         projectPath,
-        config.workflow as string | undefined,
-        options.workflow as string | undefined,
-      );
-      const stateManager = new StateManager(stateDir, workflowName, projectPath);
+        featureName: options.feature as string | undefined,
+        workflowName: options.workflow as string | undefined,
+      });
+
+      // Resolve workflow name for StateManager
+      let workflowName = "workflow";
+      if (session.workflowPath && existsSync(session.workflowPath)) {
+        try {
+          const wf = WorkflowLoader.loadFile(session.workflowPath);
+          workflowName = wf.config.name;
+        } catch {
+          // Malformed YAML — fall back
+        }
+      }
+
+      const stateManager = new StateManager(session.stateDir, workflowName, projectPath);
       try {
         stateManager.load();
       } catch {
@@ -90,26 +70,15 @@ export function registerStatusCommand(program: Command): void {
         if (options.next) {
           // --next --json: return tasks that are PENDING AND have all dependencies COMPLETED.
           // Load the workflow to build the dependency map.
-          const wfSearchPaths = [
-            resolve(projectPath, "specs", "workflow.yaml"),
-            resolve(projectPath, ".ai-sdd", "workflow.yaml"),
-            ...(options.workflow
-              ? [resolve(projectPath, ".ai-sdd", "workflows", `${options.workflow as string}.yaml`)]
-              : []),
-            resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml"),
-          ];
           let dependsOn: Record<string, string[]> = {};
-          for (const p of wfSearchPaths) {
-            if (existsSync(p)) {
-              try {
-                const wf = WorkflowLoader.loadFile(p);
-                for (const [id, task] of wf.tasks) {
-                  dependsOn[id] = task.depends_on ?? [];
-                }
-                break;
-              } catch {
-                // Malformed — try next path
+          if (session.workflowPath && existsSync(session.workflowPath)) {
+            try {
+              const wf = WorkflowLoader.loadFile(session.workflowPath);
+              for (const [id, task] of wf.tasks) {
+                dependsOn[id] = task.depends_on ?? [];
               }
+            } catch {
+              // Malformed — skip dependency filtering
             }
           }
 

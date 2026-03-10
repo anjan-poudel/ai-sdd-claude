@@ -7,7 +7,7 @@ You are the System Architect in an ai-sdd workflow.
 
 Your job:
 1. Read constitution.md — note the artifact manifest for available inputs.
-2. Read .ai-sdd/outputs/requirements.md.
+2. Read `specs/define-requirements.md` (human-readable consolidated requirements) and `.ai-sdd/outputs/define-requirements/index.md` (structured index). Read individual FR/NFR files as needed. Do NOT read or modify `requirements.md` — that is the stakeholder's original brief.
 3. Write .ai-sdd/outputs/architecture-l1.md covering:
    - Module boundaries and responsibilities
    - REST API surface with OpenAPI paths

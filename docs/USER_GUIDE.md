@@ -10,21 +10,22 @@
 
 1. [Concepts](#concepts)
 2. [Project Setup](#project-setup)
-3. [Workflow YAML Reference](#workflow-yaml-reference)
-4. [Agent Configuration](#agent-configuration)
-5. [Constitution System](#constitution-system)
-6. [Standards](#standards)
-7. [Overlays](#overlays)
-8. [Remote Overlays](#remote-overlays)
-9. [Expression DSL](#expression-dsl)
-10. [Human-in-the-Loop (HIL)](#human-in-the-loop-hil)
-11. [Evidence Gate](#evidence-gate)
-12. [CLI Command Reference](#cli-command-reference)
-13. [Adapter Configuration](#adapter-configuration)
-14. [Integration Guides](#integration-guides)
-15. [Security](#security)
-16. [Config Reference](#config-reference)
-17. [Troubleshooting](#troubleshooting)
+3. [Session Management](#session-management)
+4. [Workflow YAML Reference](#workflow-yaml-reference)
+5. [Agent Configuration](#agent-configuration)
+6. [Constitution System](#constitution-system)
+7. [Standards](#standards)
+8. [Overlays](#overlays)
+9. [Remote Overlays](#remote-overlays)
+10. [Expression DSL](#expression-dsl)
+11. [Human-in-the-Loop (HIL)](#human-in-the-loop-hil)
+12. [Evidence Gate](#evidence-gate)
+13. [CLI Command Reference](#cli-command-reference)
+14. [Adapter Configuration](#adapter-configuration)
+15. [Integration Guides](#integration-guides)
+16. [Security](#security)
+17. [Config Reference](#config-reference)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -92,14 +93,23 @@ your-project/
 │       └── constitution.md  # Feature-scoped constitution (optional)
 ├── .ai-sdd/
 │   ├── ai-sdd.yaml          # Project config
+│   ├── active-session        # Current session name (plain text, e.g. "roundtrip-travel")
 │   ├── workflows/
 │   │   └── default-sdd.yaml # Default SDD workflow (copied by init, edit freely)
 │   ├── agents/              # Custom agent overrides (optional)
-│   └── state/               # Runtime state (auto-managed)
-│       ├── workflow-state.json
-│       ├── hil/             # HIL queue items
-│       ├── pair-sessions/   # Paired workflow session state
-│       └── review-logs/     # Agentic review audit logs
+│   └── sessions/            # Per-session runtime state (auto-managed)
+│       ├── default/         # Greenfield session (no --feature)
+│       │   ├── workflow-state.json
+│       │   ├── hil/
+│       │   ├── outputs/
+│       │   ├── pair-sessions/
+│       │   └── review-logs/
+│       └── <feature-name>/  # Feature-scoped session
+│           ├── workflow-state.json
+│           ├── hil/
+│           ├── outputs/
+│           ├── pair-sessions/
+│           └── review-logs/
 └── .claude/                 # Created by init --tool claude_code
     ├── agents/              # sdd-ba, sdd-architect, sdd-pe, sdd-le, sdd-dev, sdd-reviewer
     └── skills/
@@ -145,6 +155,52 @@ overlays:
   hil:
     enabled: true
 ```
+
+---
+
+## Session Management
+
+Sessions let you run multiple concurrent feature workflows from a single `.ai-sdd/` directory. Each session has isolated state, HIL queue, outputs, pair-sessions, and review logs.
+
+### Active session
+
+The active session is stored in `.ai-sdd/active-session` (plain text file). All CLI commands operate on the active session by default. Override with `--feature <name>`.
+
+```bash
+ai-sdd sessions active              # Print active session name
+ai-sdd sessions switch my-feature   # Switch active session
+ai-sdd run --feature my-feature     # Run with explicit feature (also sets active)
+```
+
+### Creating sessions
+
+```bash
+ai-sdd sessions create my-feature   # Create session directory + subdirs
+```
+
+Sessions are also auto-created when you run `ai-sdd run --feature <name>` for the first time.
+
+### Listing sessions
+
+```bash
+ai-sdd sessions list                # Name, task counts, active marker
+ai-sdd sessions list --json         # Machine-readable
+```
+
+### Feature config overrides
+
+A feature can optionally override the central config and agents by placing files under `specs/<feature>/.ai-sdd/`:
+
+```
+specs/<feature>/.ai-sdd/
+├── ai-sdd.yaml          # Deep-merged on top of root config
+├── agents/               # Feature-specific agent overrides
+└── workflows/            # Feature-specific workflow overrides
+```
+
+### Legacy layout
+
+Projects created before multi-session support have a flat `.ai-sdd/state/` directory. This is auto-detected — all commands work unchanged. A warning suggests running a future `ai-sdd migrate` command to upgrade.
 
 ---
 
@@ -510,7 +566,7 @@ overlays:
 **Flow:**
 1. Coder produces output (normal engine dispatch).
 2. Reviewer evaluates: GO or NO_GO with actionable feedback.
-3. GO → `COMPLETED`. Review log written to `.ai-sdd/state/review-logs/<task-id>.json`.
+3. GO → `COMPLETED`. Review log written to `.ai-sdd/sessions/<session>/review-logs/<task-id>.json`.
 4. NO_GO → `NEEDS_REWORK`. Feedback injected into coder's next iteration.
 5. Max iterations without GO → `NEEDS_REWORK` with `hil_suggested: true`.
 
@@ -555,7 +611,7 @@ overlays:
 4. Rejected + iterations remaining → `NEEDS_REWORK`. Roles switch if `subtask`.
 5. Max iterations without approval → `NEEDS_REWORK` with `hil_suggested: true`. Roles switch if `checkpoint`.
 
-Session state persisted to `.ai-sdd/state/pair-sessions/<task-id>.json`.
+Session state persisted to `.ai-sdd/sessions/<session>/pair-sessions/<task-id>.json`.
 
 **Constraint:** `challenger_agent` ≠ `driver_agent`. `challenger_agent` required when `enabled: true`. Validated at workflow load time.
 
@@ -690,7 +746,7 @@ Unquoted uppercase identifiers (`GO`, `PASS`, `NO_GO`) are string literals. Lowe
 
 ### HIL Workflow
 
-1. Engine creates a HIL item in `.ai-sdd/state/hil/`
+1. Engine creates a HIL item in `.ai-sdd/sessions/<session>/hil/`
 2. Task transitions to `HIL_PENDING`
 3. Human reviews and resolves or rejects:
 
@@ -735,7 +791,7 @@ Gate fail → `NEEDS_REWORK` with feedback injected into the next iteration.
 
 ### `run`
 
-State is always auto-loaded from `workflow-state.json` when it exists. Delete the file to start fresh. `--resume` is a no-op kept for backward compatibility.
+State is always auto-loaded from the active session's `workflow-state.json` when it exists. Delete the file to start fresh. `--resume` is a no-op kept for backward compatibility. Using `--feature` sets the active session automatically.
 
 ```bash
 ai-sdd run [--project <dir>]
@@ -759,6 +815,7 @@ Options:
   --next --json       Next ready tasks only (DAG-aware — blocked PENDING excluded)
   --metrics           Add Tokens / Cost / Duration columns per task + footer totals
   --workflow <name>   Workflow name for DAG lookup
+  --feature <name>    Feature/session name (uses active session if omitted)
 ```
 
 Example `--metrics` output:
@@ -797,10 +854,10 @@ ai-sdd complete-task \
 ### `hil`
 
 ```bash
-ai-sdd hil list [--json] [--project <dir>]
-ai-sdd hil show <id> [--project <dir>]
-ai-sdd hil resolve <id> [--notes <text>] [--project <dir>]
-ai-sdd hil reject <id> [--reason <text>] [--project <dir>]
+ai-sdd hil [--feature <name>] list [--json] [--project <dir>]
+ai-sdd hil [--feature <name>] show <id> [--project <dir>]
+ai-sdd hil [--feature <name>] resolve <id> [--notes <text>] [--project <dir>]
+ai-sdd hil [--feature <name>] reject <id> [--reason <text>] [--project <dir>]
 ```
 
 ### `validate-config`
@@ -814,7 +871,7 @@ Validates: `ai-sdd.yaml`, workflow YAML (including `use:`, `defaults:`, overlay 
 ### `constitution`
 
 ```bash
-ai-sdd constitution [--task <id>] [--project <dir>]
+ai-sdd constitution [--task <id>] [--feature <name>] [--project <dir>]
 ```
 
 Prints the full merged constitution to stdout (including standards). Sources printed to stderr. Use to verify exactly what agents receive.
@@ -827,6 +884,15 @@ ai-sdd init --tool <name> [--project <dir>]
 Tools: claude_code | codex | roo_code
 ```
 
+### `sessions`
+
+```bash
+ai-sdd sessions list [--json] [--project <dir>]       # List all sessions
+ai-sdd sessions active [--json] [--project <dir>]     # Show active session
+ai-sdd sessions switch <name> [--project <dir>]       # Switch active session
+ai-sdd sessions create <name> [--project <dir>]       # Create a new session
+```
+
 ### `serve --mcp`
 
 Stdio transport only. Configure your tool to connect via stdio.
@@ -835,7 +901,7 @@ Stdio transport only. Configure your tool to connect via stdio.
 ai-sdd serve --mcp [--project <dir>]
 ```
 
-MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `reject_hil`, `get_constitution`.
+MCP tools: `get_next_task`, `get_workflow_status`, `complete_task`, `list_hil_items`, `resolve_hil`, `reject_hil`, `get_constitution`, `list_sessions`, `get_active_session`, `switch_session`. Tools that operate on workflow state accept an optional `feature` parameter (uses active session if omitted).
 
 ---
 
@@ -883,7 +949,7 @@ For testing and dry-runs. Always returns `COMPLETED` with empty outputs.
 
 ## Integration Guides
 
-### Claude Code
+## Using Claude Code
 
 1. Initialize:
 
@@ -899,7 +965,7 @@ Creates: `.claude/agents/` (6 subagents), `.claude/skills/sdd-run/`, `.claude/sk
 5. Type `/sdd-run` — the skill identifies the next task, spawns the correct subagent, handles HIL approvals inline, and loops.
 6. Type `/sdd-status` to check progress at any time.
 
-### Codex CLI
+## Using Codex CLI
 
 1. Initialize:
 
@@ -916,7 +982,7 @@ ai-sdd init --tool codex --project /path/to/project
    ```
 4. Continue until no PENDING tasks remain.
 
-### Roo Code
+## Using Roo Code
 
 1. Initialize:
 
@@ -996,13 +1062,11 @@ engine:
   cost_budget_per_run_usd: 10.00
   cost_enforcement: pause       # warn | pause | stop
   max_context_tokens: 180000
-  context_warning_threshold_pct: 80
-  context_hil_threshold_pct: 95
 
 overlays:
   hil:
     enabled: true
-    queue_path: ".ai-sdd/state/hil/"
+    queue_path: ".ai-sdd/sessions/<active>/hil/"
     poll_interval_seconds: 5
     notify:
       on_created: []
@@ -1038,7 +1102,7 @@ standards:
 ```
 schema version mismatch: expected '1', got '2'
 ```
-→ State file written by a different version. Manual recovery: open `.ai-sdd/state/workflow-state.json`, set `schema_version` to `"1"`.
+→ State file written by a different version. Manual recovery: open `.ai-sdd/sessions/<session>/workflow-state.json` (or `.ai-sdd/state/workflow-state.json` for legacy layout), set `schema_version` to `"1"`.
 
 ### No workflow found
 

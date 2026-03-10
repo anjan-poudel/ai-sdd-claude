@@ -7,7 +7,8 @@ You are the Business Analyst in an ai-sdd Specification-Driven Development workf
 
 ## Inputs
 1. Read `constitution.md` — project purpose, constraints, open decisions.
-2. Ask the developer clarifying questions about requirements before writing.
+2. Read `requirements.md` (if it exists) as the stakeholder's raw brief — treat it as **read-only input**. Never modify it.
+3. Ask the developer clarifying questions about requirements before writing.
 
 ## Output structure
 
@@ -27,7 +28,11 @@ Produce the following folder under `.ai-sdd/outputs/define-requirements/`:
     ...
 ```
 
-Also write the human-readable canonical copy to: `requirements.md` (project root level) as a flat consolidated document for easy reading.
+Also write the human-readable canonical copy to: `specs/define-requirements.md` as a flat consolidated document for easy reading.
+
+**IMPORTANT — file ownership rules:**
+- `requirements.md` (project root) is a **source input** — the stakeholder's original brief. Never overwrite or modify it.
+- Only write to files you created during this task run. Do not modify any pre-existing file unless it is listed as an explicit output target above.
 
 ### `define-requirements/index.md` format
 

@@ -5,6 +5,7 @@
 import type { Command } from "commander";
 import { resolve, join } from "path";
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readdirSync, appendFileSync, readFileSync } from "fs";
+import { ensureSessionDirs, setActiveSession } from "../../core/session-resolver.ts";
 
 export function registerInitCommand(program: Command): void {
   program
@@ -26,9 +27,23 @@ export function registerInitCommand(program: Command): void {
 
       // Create .ai-sdd/ structure
       const aiSddDir = join(projectPath, ".ai-sdd");
-      for (const dir of ["state", "state/hil", "outputs", "agents"]) {
-        const p = join(aiSddDir, dir);
-        if (!existsSync(p)) mkdirSync(p, { recursive: true });
+      const legacyStateDir = join(aiSddDir, "state");
+      if (existsSync(legacyStateDir) && !existsSync(join(aiSddDir, "sessions"))) {
+        // Legacy layout exists — preserve it, create agents/ only
+        if (!existsSync(join(aiSddDir, "agents"))) {
+          mkdirSync(join(aiSddDir, "agents"), { recursive: true });
+        }
+        console.log(`  Legacy .ai-sdd/state/ detected — skipping sessions migration.`);
+        console.log(`  Delete .ai-sdd/state/ to use the new sessions layout.`);
+      } else {
+        // New sessions layout
+        if (!existsSync(join(aiSddDir, "agents"))) {
+          mkdirSync(join(aiSddDir, "agents"), { recursive: true });
+        }
+        const defaultSessionDir = join(aiSddDir, "sessions", "default");
+        ensureSessionDirs(defaultSessionDir);
+        setActiveSession(projectPath, "default");
+        console.log(`  Created: .ai-sdd/sessions/default/`);
       }
 
       // Write minimal ai-sdd.yaml
@@ -110,7 +125,7 @@ function installClaudeCode(projectPath: string): void {
     }
   }
 
-  // Copy skill directories (each skill is a subdirectory with SKILL.md)
+  // Write skill directories — substitute {{PROJECT_PATH}} with the actual project path
   const srcSkillsDir = join(dataDir, "skills");
   if (existsSync(srcSkillsDir)) {
     for (const skillName of readdirSync(srcSkillsDir)) {
@@ -119,7 +134,9 @@ function installClaudeCode(projectPath: string): void {
       const skillFile = join(srcSkillsDir, skillName, "SKILL.md");
       const skillFileDest = join(skillDestDir, "SKILL.md");
       if (existsSync(skillFile) && !existsSync(skillFileDest)) {
-        copyFileSync(skillFile, skillFileDest);
+        const template = readFileSync(skillFile, "utf-8");
+        const rendered = template.replaceAll("{{PROJECT_PATH}}", projectPath);
+        writeFileSync(skillFileDest, rendered, "utf-8");
         console.log(`  Created: .claude/skills/${skillName}/SKILL.md`);
       }
     }

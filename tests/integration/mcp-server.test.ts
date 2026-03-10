@@ -28,6 +28,9 @@ const EXPECTED_TOOLS = [
   "resolve_hil",
   "reject_hil",
   "get_constitution",
+  "list_sessions",
+  "get_active_session",
+  "switch_session",
 ] as const;
 
 describe("MCP server tool definitions", () => {
@@ -54,8 +57,9 @@ describe("MCP server tool definitions", () => {
       "utf-8",
     );
     expect(src).toContain("case \"reject_hil\":");
-    // Delegates to hil reject CLI command
-    expect(src).toContain("\"hil\", \"reject\"");
+    // Delegates to hil reject CLI command (feature args may be interspersed)
+    expect(src).toContain("\"reject\"");
+    expect(src).toContain("\"hil\"");
   });
 
   it("resolve_hil and reject_hil are symmetric (both have id as required param)", async () => {

@@ -15,14 +15,13 @@ import { createAdapter } from "../../adapters/factory.ts";
 import { HilOverlay } from "../../overlays/hil/hil-overlay.ts";
 import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
 import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
-import { ReviewLogWriter } from "../../overlays/review/review-log.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
-import { PairSession } from "../../overlays/paired/pair-session.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
 import { buildProviderChain } from "../../overlays/registry.ts";
 import { resolveBackendTools } from "../../overlays/mcp/mcp-client.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
-import { loadProjectConfig, loadRemoteOverlayConfig } from "../config-loader.ts";
+import { loadRemoteOverlayConfig } from "../config-loader.ts";
+import { resolveSession, setActiveSession, ensureSessionDirs } from "../../core/session-resolver.ts";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -47,54 +46,36 @@ export function registerRunCommand(program: Command): void {
         process.exit(1);
       }
 
-      const config = loadProjectConfig(projectPath);
-
-      // Load workflow — search order (first match wins):
-      //   0. --workflow <name>                               (CLI flag, highest priority)
-      //   1. specs/<feature>/workflow.yaml                  (--feature flag)
-      //   2. specs/workflow.yaml                            (greenfield — workflow lives with specs)
-      //   3. .ai-sdd/workflow.yaml                          (explicit single-file, backward compat)
-      //   4. .ai-sdd/workflows/<config.workflow>.yaml       (config.workflow name, if set)
-      //   5. .ai-sdd/workflows/default-sdd.yaml            (copied by ai-sdd init)
-      //   6. bundled framework default
-      const cliWorkflowName = options.workflow as string | undefined;
-      const cliWorkflowPath = cliWorkflowName
-        ? resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`)
-        : null;
       const featureName = options.feature as string | undefined;
-      const featureWorkflowPath = featureName
-        ? resolve(projectPath, "specs", featureName, "workflow.yaml")
-        : null;
-      const specsWorkflowPath = resolve(projectPath, "specs", "workflow.yaml");
-      const workflowPath = resolve(projectPath, ".ai-sdd", "workflow.yaml");
-      const configWorkflowName = config.workflow as string | undefined;
-      const configWorkflowPath = configWorkflowName
-        ? resolve(projectPath, ".ai-sdd", "workflows", `${configWorkflowName}.yaml`)
-        : null;
-      const initCopiedPath = resolve(projectPath, ".ai-sdd", "workflows", "default-sdd.yaml");
-      const bundledDefaultPath = resolve(
-        new URL("../../../data/workflows/default-sdd.yaml", import.meta.url).pathname,
-      );
+      const cliWorkflowName = options.workflow as string | undefined;
 
-      if (cliWorkflowPath && !existsSync(cliWorkflowPath)) {
-        console.error(`Workflow not found: ${cliWorkflowPath}`);
-        process.exit(1);
+      // Resolve session — centralizes all path computation
+      const session = resolveSession({
+        projectPath,
+        featureName,
+        workflowName: cliWorkflowName,
+      });
+      const config = session.config;
+
+      // Auto-switch active session when --feature is provided
+      if (featureName && !session.isLegacy) {
+        setActiveSession(projectPath, featureName);
       }
 
-      if (featureWorkflowPath && !existsSync(featureWorkflowPath)) {
-        console.error(`Feature workflow not found: ${featureWorkflowPath}`);
-        process.exit(1);
+      // Ensure session directories exist
+      if (!session.isLegacy) {
+        ensureSessionDirs(session.sessionDir);
       }
 
-      const wfPath = (cliWorkflowPath && existsSync(cliWorkflowPath)) ? cliWorkflowPath
-                   : (featureWorkflowPath && existsSync(featureWorkflowPath)) ? featureWorkflowPath
-                   : existsSync(specsWorkflowPath) ? specsWorkflowPath
-                   : existsSync(workflowPath) ? workflowPath
-                   : (configWorkflowPath && existsSync(configWorkflowPath)) ? configWorkflowPath
-                   : existsSync(initCopiedPath) ? initCopiedPath
-                   : existsSync(bundledDefaultPath) ? bundledDefaultPath
-                   : null;
+      if (session.isLegacy) {
+        console.warn(
+          `[ai-sdd] Legacy .ai-sdd/state/ layout detected. ` +
+          `Consider re-running: ai-sdd init --tool <name>`,
+        );
+      }
 
+      // Validate workflow path
+      const wfPath = session.workflowPath;
       if (!wfPath) {
         console.error(
           `No workflow found. Create .ai-sdd/workflow.yaml or run: ai-sdd init`,
@@ -102,23 +83,37 @@ export function registerRunCommand(program: Command): void {
         process.exit(1);
       }
 
-      const workflow = WorkflowLoader.loadFile(wfPath);
-
-      // Load agents
-      const defaultsDir = resolve(
-        new URL("../../../data/agents/defaults", import.meta.url).pathname,
-      );
-      const agentRegistry = new AgentRegistry(defaultsDir);
-      agentRegistry.loadDefaults();
-
-      const projectAgentsDir = resolve(projectPath, ".ai-sdd", "agents");
-      if (existsSync(projectAgentsDir)) {
-        agentRegistry.loadProjectAgents(projectAgentsDir);
+      // Validate CLI-specified paths exist (stricter than first-found-wins)
+      if (cliWorkflowName) {
+        const cliWorkflowPath = resolve(projectPath, ".ai-sdd", "workflows", `${cliWorkflowName}.yaml`);
+        if (!existsSync(cliWorkflowPath)) {
+          console.error(`Workflow not found: ${cliWorkflowPath}`);
+          process.exit(1);
+        }
+      }
+      if (featureName) {
+        const featureWorkflowPath = resolve(projectPath, "specs", featureName, "workflow.yaml");
+        if (!cliWorkflowName && !existsSync(featureWorkflowPath)) {
+          console.error(`Feature workflow not found: ${featureWorkflowPath}`);
+          process.exit(1);
+        }
       }
 
-      // State manager
-      const stateDir = resolve(projectPath, ".ai-sdd", "state");
-      const stateManager = new StateManager(stateDir, workflow.config.name, projectPath);
+      const workflow = WorkflowLoader.loadFile(wfPath);
+
+      // Load agents from all resolved directories
+      const agentRegistry = new AgentRegistry(
+        session.agentsDirs[0] ?? resolve(
+          new URL("../../../data/agents/defaults", import.meta.url).pathname,
+        ),
+      );
+      agentRegistry.loadDefaults();
+      for (const dir of session.agentsDirs.slice(1)) {
+        agentRegistry.loadProjectAgents(dir);
+      }
+
+      // State manager — uses session-resolved state directory
+      const stateManager = new StateManager(session.stateDir, workflow.config.name, projectPath);
       // Always load persisted state if it exists — auto-resume is the correct default.
       // StateManager.load() is idempotent: if no state file exists it stays fresh.
       // The --resume flag is kept for backward compatibility but is now a no-op.
@@ -158,11 +153,9 @@ export function registerRunCommand(program: Command): void {
       });
 
       // Overlay chain — built from project config in locked order
-      const hilQueuePath = resolve(
-        projectPath,
-        config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/",
-      );
-      const outputsDir = resolve(projectPath, ".ai-sdd", "outputs");
+      // Paths come from session resolver
+      const hilQueuePath = session.hilQueuePath;
+      const outputsDir = session.outputsDir;
       let remoteConfig = loadRemoteOverlayConfig(projectPath);
 
       // Probe remote overlay backend availability and apply env-var disables.
@@ -222,8 +215,8 @@ export function registerRunCommand(program: Command): void {
             emitter,
           ),
           policy_gate: new PolicyGateOverlay(outputsDir, emitter),
-          review: new ReviewOverlay(emitter, { enabled: false }, adapter, ReviewLogWriter.logDir(projectPath)),
-          paired: new PairedOverlay(emitter, { enabled: false }, adapter, PairSession.sessionDir(projectPath)),
+          review: new ReviewOverlay(emitter, { enabled: false }, adapter, session.reviewLogsDir),
+          paired: new PairedOverlay(emitter, { enabled: false }, adapter, session.pairSessionsDir),
           confidence: new ConfidenceOverlay(emitter, {}, adapter),
         },
         ...(remoteConfig !== undefined && { remoteConfig }),

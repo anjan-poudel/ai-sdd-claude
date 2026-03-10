@@ -36,6 +36,7 @@ src/
     agent-loader.ts       # AgentRegistry with YAML `extends` inheritance
     context-manager.ts    # assembles prompts for direct-mode dispatch
     hooks.ts              # pre/post task hook registry
+    session-resolver.ts   # multi-session path resolution (SessionContext)
   adapters/               # base-adapter.ts interface; mock, claude-code, openai impls
   overlays/               # HIL, policy-gate, review, paired, confidence
   cli/commands/           # one file per CLI subcommand
@@ -72,7 +73,7 @@ Invalid transitions throw `StateError`.
 
 **HIL resume** — when the engine encounters a task in `HIL_PENDING` state (from persisted state), it skips the pre-overlay chain and calls `awaitResolution()` directly using the stored `hil_item_id`. This prevents the state machine reset bug where pre-overlays would fire again and create duplicate HIL items. See `specs/tasks/T025-hil-resume-state-reset.md`.
 
-**Auto-resume** — `ai-sdd run` always loads persisted state if a state file exists. The `--resume` flag is kept for backward compatibility but is now a no-op. There is no way to force a fresh run while a state file is present; delete `.ai-sdd/state/workflow-state.json` manually to start over.
+**Auto-resume** — `ai-sdd run` always loads persisted state if a state file exists. The `--resume` flag is kept for backward compatibility but is now a no-op. There is no way to force a fresh run while a state file is present; delete the session's `workflow-state.json` to start over (e.g. `.ai-sdd/sessions/default/workflow-state.json` or `.ai-sdd/state/workflow-state.json` in legacy layout).
 
 **Overlay chain order is locked** (enforced by `src/overlays/composition-rules.ts`):
 ```
@@ -91,6 +92,25 @@ MCP server delegates to this command; it never writes files directly.
 **`status --next --json` is DAG-aware** — only PENDING tasks whose declared `depends_on` are all COMPLETED are returned as ready tasks. Blocked tasks are excluded even if their status is PENDING.
 
 **Workflow defaults + task library** — `workflow-loader.ts` applies a 4-layer merge per task: `ENGINE_TASK_DEFAULTS` → workflow `defaults:` block → task library template (`use:`) → task inline. Engine built-ins: `hil.enabled=true`, `policy_gate.risk_tier=T1`, `max_rework_iterations=3`. Overlay keys merge individually (not whole-object replace). `{{task_id}}` in library output paths is substituted at load time.
+
+**Multi-session support** — `.ai-sdd/` supports concurrent feature sessions:
+```
+.ai-sdd/
+├── ai-sdd.yaml              # shared base config
+├── active-session            # text file → session name (e.g. "roundtrip-travel")
+├── sessions/                 # per-session runtime state
+│   ├── default/              # greenfield (no --feature)
+│   │   ├── workflow-state.json
+│   │   ├── hil/
+│   │   ├── outputs/
+│   │   ├── pair-sessions/
+│   │   └── review-logs/
+│   └── <feature-name>/      # feature session
+├── workflows/                # shared workflow definitions
+└── agents/                   # shared agents
+```
+Legacy flat layout (`.ai-sdd/state/`) is auto-detected and supported.
+Feature overrides: `specs/<feature>/.ai-sdd/ai-sdd.yaml` is deep-merged over root config.
 
 **Output structure** — `.ai-sdd/` is runtime-only (state, HIL queue, workflow engine files). Workflow artifacts go in `specs/`:
 - Greenfield project: `specs/<task-id>.md` (e.g. `specs/define-requirements.md`, `specs/design-l1.md`)
@@ -154,11 +174,12 @@ Every state file carries `schema_version: "1"`. Version mismatch at startup → 
 ```
 ai-sdd run [--resume] [--task <id>] [--dry-run] [--step] [--workflow <name>] [--feature <name>] [--standards <paths|none>]
            # --resume is a no-op; state is always auto-loaded if the state file exists
-ai-sdd status [--json] [--next --json] [--metrics] [--workflow <name>]
+ai-sdd status [--json] [--next --json] [--metrics] [--workflow <name>] [--feature <name>]
 ai-sdd complete-task --task <id> --output-path <path> --content-file <tmp> [--feature <name>]
 ai-sdd validate-config           # checks all 6 workflow search paths (same order as run)
-ai-sdd constitution [--task <id>]
-ai-sdd hil list [--json] | show <id> | resolve <id> [--notes] | reject <id> [--reason]
+ai-sdd constitution [--task <id>] [--feature <name>]
+ai-sdd hil [--feature <name>] list [--json] | show <id> | resolve <id> [--notes] | reject <id> [--reason]
+ai-sdd sessions list [--json] | active [--json] | switch <name> | create <name>
 ai-sdd init --tool <name> [--project <path>]   # tool: claude_code | openai | roo_code
 ai-sdd serve --mcp                             # stdio transport only — no --port
 ai-sdd migrate [--dry-run] [--from N --to N]   # exits 1 — not yet implemented

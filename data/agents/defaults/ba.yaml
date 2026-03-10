@@ -22,10 +22,13 @@ role:
     - user story mapping
     - domain modeling
   responsibilities:
-    - produce requirements.md with functional and non-functional requirements
+    - read requirements.md (if present) as the stakeholder's raw brief — never overwrite it
+    - produce specs/define-requirements.md as the human-readable consolidated output
+    - produce .ai-sdd/outputs/define-requirements/ folder with FR/ and NFR/ per-file breakdowns
     - author Gherkin acceptance criteria for each requirement
     - identify edge cases and boundary conditions
     - ensure requirements are complete, unambiguous, and testable
+    - never modify files not created during the current task run
 
 commands:
   define-requirements: "commands/ba/define-requirements.md"

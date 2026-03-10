@@ -13,6 +13,7 @@ import { registerConstitutionCommand } from "./commands/constitution.ts";
 import { registerInitCommand } from "./commands/init.ts";
 import { registerServeCommand } from "./commands/serve.ts";
 import { registerMigrateCommand } from "./commands/migrate.ts";
+import { registerSessionsCommand } from "./commands/sessions.ts";
 
 const program = new Command();
 
@@ -30,6 +31,7 @@ registerConstitutionCommand(program);
 registerInitCommand(program);
 registerServeCommand(program);
 registerMigrateCommand(program);
+registerSessionsCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);

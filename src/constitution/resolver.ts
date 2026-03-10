@@ -21,6 +21,11 @@ export interface ConstitutionOptions {
   standards_paths?: string[];
   /** Hard error on missing standard file. Default false. */
   standards_strict?: boolean;
+  /**
+   * When set, scope feature constitutions to only this feature's constitution.md
+   * (instead of all specs/<name>/constitution.md files).
+   */
+  feature_name?: string;
 }
 
 export interface ConstitutionResult {
@@ -47,8 +52,11 @@ function mergeConstitutions(constitutions: Array<{ path: string; content: string
  * Find constitution.md files in a project directory tree.
  * Searches: root, .ai-sdd/, CLAUDE.md, specs/<feature>/constitution.md (feature constitutions),
  * and any submodule directories.
+ *
+ * When featureName is set, only that feature's constitution is included
+ * (instead of all specs/<name>/constitution.md files).
  */
-function findConstitutionFiles(projectPath: string): string[] {
+function findConstitutionFiles(projectPath: string, featureName?: string): string[] {
   const files: string[] = [];
   const candidates = [
     join(projectPath, "constitution.md"),
@@ -62,22 +70,31 @@ function findConstitutionFiles(projectPath: string): string[] {
     }
   }
 
-  // Feature constitutions (specs/*/constitution.md, alphabetical by directory name)
+  // Feature constitutions
   const specsDir = join(projectPath, "specs");
-  try {
-    if (existsSync(specsDir)) {
-      const entries = readdirSync(specsDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => d.name)
-        .sort();
-      for (const dir of entries) {
-        const featureConstitution = join(specsDir, dir, "constitution.md");
-        if (existsSync(featureConstitution)) {
-          files.push(featureConstitution);
+  if (featureName) {
+    // Scoped: only include this feature's constitution
+    const featureConstitution = join(specsDir, featureName, "constitution.md");
+    if (existsSync(featureConstitution)) {
+      files.push(featureConstitution);
+    }
+  } else {
+    // Unscoped: include all feature constitutions (specs/*/constitution.md, alphabetical)
+    try {
+      if (existsSync(specsDir)) {
+        const entries = readdirSync(specsDir, { withFileTypes: true })
+          .filter(d => d.isDirectory())
+          .map(d => d.name)
+          .sort();
+        for (const dir of entries) {
+          const featureConstitution = join(specsDir, dir, "constitution.md");
+          if (existsSync(featureConstitution)) {
+            files.push(featureConstitution);
+          }
         }
       }
-    }
-  } catch { /* directory unreadable — skip */ }
+    } catch { /* directory unreadable — skip */ }
+  }
 
   // Search for submodule constitutions (one level deep)
   try {
@@ -130,12 +147,14 @@ export class ConstitutionResolver {
   private readonly strictParse: boolean;
   private readonly standardsPaths: string[] | undefined;
   private readonly standardsStrict: boolean;
+  private readonly featureName: string | undefined;
 
   constructor(options: ConstitutionOptions) {
     this.projectPath = resolve(options.project_path);
     this.strictParse = options.strict_parse ?? true;
     this.standardsPaths = options.standards_paths;
     this.standardsStrict = options.standards_strict ?? false;
+    this.featureName = options.feature_name;
   }
 
   /**
@@ -191,7 +210,7 @@ export class ConstitutionResolver {
     const sources: string[] = [];
     const constitutions: Array<{ path: string; content: string }> = [];
 
-    const files = findConstitutionFiles(this.projectPath);
+    const files = findConstitutionFiles(this.projectPath, this.featureName);
 
     if (files.length === 0) {
       if (this.strictParse) {

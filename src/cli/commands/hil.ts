@@ -5,12 +5,13 @@
 import type { Command } from "commander";
 import { resolve } from "path";
 import { HilQueue } from "../../overlays/hil/hil-queue.ts";
-import { loadProjectConfig } from "../config-loader.ts";
+import { resolveSession } from "../../core/session-resolver.ts";
 
 export function registerHilCommand(program: Command): void {
   const hil = program
     .command("hil")
-    .description("Manage human-in-the-loop (HIL) queue");
+    .description("Manage human-in-the-loop (HIL) queue")
+    .option("--feature <name>", "Feature/session name");
 
   // hil list
   hil
@@ -20,9 +21,9 @@ export function registerHilCommand(program: Command): void {
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
-      const config = loadProjectConfig(projectPath);
-      const queuePath = resolve(projectPath, config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/");
-      const queue = new HilQueue(queuePath);
+      const featureName = hil.opts().feature as string | undefined;
+      const session = resolveSession({ projectPath, featureName });
+      const queue = new HilQueue(session.hilQueuePath);
 
       const items = queue.list("PENDING");
 
@@ -53,9 +54,9 @@ export function registerHilCommand(program: Command): void {
     .option("--project <path>", "Project directory", process.cwd())
     .action((id: string, options) => {
       const projectPath = resolve(options.project as string);
-      const config = loadProjectConfig(projectPath);
-      const queuePath = resolve(projectPath, config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/");
-      const queue = new HilQueue(queuePath);
+      const featureName = hil.opts().feature as string | undefined;
+      const session = resolveSession({ projectPath, featureName });
+      const queue = new HilQueue(session.hilQueuePath);
 
       const item = queue.get(id);
       if (!item) {
@@ -74,9 +75,9 @@ export function registerHilCommand(program: Command): void {
     .option("--project <path>", "Project directory", process.cwd())
     .action((id: string, options) => {
       const projectPath = resolve(options.project as string);
-      const config = loadProjectConfig(projectPath);
-      const queuePath = resolve(projectPath, config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/");
-      const queue = new HilQueue(queuePath);
+      const featureName = hil.opts().feature as string | undefined;
+      const session = resolveSession({ projectPath, featureName });
+      const queue = new HilQueue(session.hilQueuePath);
 
       const item = queue.resolve(id, options.notes as string | undefined);
       console.log(`HIL item '${id}' resolved. Task '${item.task_id}' will resume.`);
@@ -90,9 +91,9 @@ export function registerHilCommand(program: Command): void {
     .option("--project <path>", "Project directory", process.cwd())
     .action((id: string, options) => {
       const projectPath = resolve(options.project as string);
-      const config = loadProjectConfig(projectPath);
-      const queuePath = resolve(projectPath, config.overlays?.hil?.queue_path ?? ".ai-sdd/state/hil/");
-      const queue = new HilQueue(queuePath);
+      const featureName = hil.opts().feature as string | undefined;
+      const session = resolveSession({ projectPath, featureName });
+      const queue = new HilQueue(session.hilQueuePath);
 
       const item = queue.reject(id, options.reason as string | undefined);
       console.log(`HIL item '${id}' rejected. Task '${item.task_id}' will fail.`);

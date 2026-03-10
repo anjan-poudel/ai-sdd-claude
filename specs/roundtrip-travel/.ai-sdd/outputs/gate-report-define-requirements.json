@@ -1,0 +1,9 @@
+{
+  "task_id": "define-requirements",
+  "risk_tier": "T0",
+  "verdict": "FAIL",
+  "failures": [
+    "No outputs produced"
+  ],
+  "timestamp": "2026-03-10T06:53:08.203Z"
+}
