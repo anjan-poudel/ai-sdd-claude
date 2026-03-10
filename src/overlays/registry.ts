@@ -1,6 +1,6 @@
 /**
  * Overlay registry — builds the unified OverlayProvider chain from local and remote configs.
- * Chain order is locked: HIL → remote overlays → policy_gate → review/paired → confidence
+ * Chain order is locked: HIL → remote overlays → policy_gate → review/paired → traceability → confidence
  */
 import type { OverlayProvider } from "../types/overlay-protocol.ts";
 import type { ResolvedOverlayConfig, ResolvedBackendConfig } from "../config/remote-overlay-schema.ts";
@@ -23,6 +23,7 @@ export interface RegistryInput {
     policy_gate?: BaseOverlay;
     review?: BaseOverlay;
     paired?: BaseOverlay;
+    traceability?: BaseOverlay;
     confidence?: BaseOverlay;
   };
   remoteConfig?: ResolvedOverlayConfig;
@@ -96,6 +97,11 @@ export function buildProviderChain(input: RegistryInput): OverlayProvider[] {
   }
   if (input.localOverlays.paired) {
     chain.push(new LocalOverlayProvider(input.localOverlays.paired));
+  }
+
+  // 5b. Traceability (between review/paired and confidence)
+  if (input.localOverlays.traceability) {
+    chain.push(new LocalOverlayProvider(input.localOverlays.traceability));
   }
 
   // 6. Confidence

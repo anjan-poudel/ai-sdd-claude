@@ -1,4 +1,5 @@
 name: standard-implement
+phase: implement
 agent: dev
 description: |
   Implement the feature per the task specification. Write unit tests,

@@ -1,4 +1,5 @@
 name: plan-tasks
+phase: planning
 agent: le
 description: |
   Break down the component designs into concrete implementation tasks.

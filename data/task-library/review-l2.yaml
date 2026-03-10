@@ -1,4 +1,5 @@
 name: review-l2
+phase: review
 agent: reviewer
 description: |
   Review the L2 component design. Verify component interfaces are correct,

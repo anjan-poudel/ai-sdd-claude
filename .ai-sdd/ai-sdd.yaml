@@ -51,6 +51,7 @@ remote_overlays:
     hooks:
       - post_task
     phases:
+      - design
       - implement
     blocking: false          # non-blocking: verdict goes to evidence but does not gate the task
     config:
@@ -64,5 +65,6 @@ remote_overlays:
     hooks:
       - post_task
     phases:
+      - design
       - implement
     blocking: false

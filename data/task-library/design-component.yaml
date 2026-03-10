@@ -1,4 +1,5 @@
 name: design-component
+phase: design
 agent: pe
 description: |
   Produce L2 component design documents. Define component interfaces,

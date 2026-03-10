@@ -102,13 +102,14 @@ export function validateProviderCombination(
 
 /**
  * Build the standard overlay chain in locked order:
- * HIL → Evidence Gate → Agentic Review → Paired Workflow → Confidence Loop → Agent Execution
+ * HIL → Evidence Gate → Agentic Review → Paired Workflow → Traceability → Confidence Loop → Agent Execution
  */
 export function buildOverlayChain(overlays: {
   hil?: BaseOverlay;
   policy_gate?: BaseOverlay;
   review?: BaseOverlay;
   paired?: BaseOverlay;
+  traceability?: BaseOverlay;
   confidence?: BaseOverlay;
 }): BaseOverlay[] {
   const chain: BaseOverlay[] = [];
@@ -116,6 +117,7 @@ export function buildOverlayChain(overlays: {
   if (overlays.policy_gate) chain.push(overlays.policy_gate);
   if (overlays.review) chain.push(overlays.review);
   if (overlays.paired) chain.push(overlays.paired);
+  if (overlays.traceability) chain.push(overlays.traceability);
   if (overlays.confidence) chain.push(overlays.confidence);
   return chain;
 }

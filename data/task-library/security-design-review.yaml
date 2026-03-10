@@ -1,4 +1,5 @@
 name: security-design-review
+phase: review
 agent: reviewer
 description: |
   Security-focused design review. Check: STRIDE threat model completeness,

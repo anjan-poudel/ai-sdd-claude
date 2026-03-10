@@ -110,6 +110,11 @@ export interface TaskOverlays {
     reviewer_agent?: string;
     max_iterations?: number;
   };
+  traceability?: {
+    enabled?: boolean;
+    lock_file?: string;
+    evaluator_agent?: string;
+  };
 }
 
 export interface TaskConfig {
@@ -149,6 +154,7 @@ export const ENGINE_TASK_DEFAULTS: WorkflowDefaults = {
   overlays: {
     hil:         { enabled: true },
     policy_gate: { risk_tier: "T1" },
+    traceability: { enabled: false },
   },
   max_rework_iterations: 3,
 };
@@ -343,7 +349,11 @@ export type EventType =
   | "overlay.remote.invoked"
   | "overlay.remote.decision"
   | "overlay.remote.failed"
-  | "overlay.remote.fallback";
+  | "overlay.remote.fallback"
+  | "overlay.remote.suppressed"
+  | "traceability.evaluated"
+  | "traceability.skipped"
+  | "traceability.failed";
 
 export interface ObservabilityEvent {
   type: EventType;

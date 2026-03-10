@@ -240,6 +240,21 @@ export class McpOverlayProvider implements OverlayProvider {
       duration_ms: Date.now() - start,
     });
 
-    return mapToDecision(parsed.data, this.id);
+    const decision = mapToDecision(parsed.data, this.id);
+
+    // blocking: false → suppress non-PASS verdicts; evidence is preserved via the event above
+    if (this.overlayConfig.blocking === false && decision.verdict !== "PASS") {
+      this.emitter.emit("overlay.remote.suppressed", {
+        overlay_name: this.id,
+        backend_id: backendId,
+        hook,
+        task_id: ctx.task_id,
+        original_verdict: decision.verdict,
+        reason: "non-blocking overlay — verdict recorded as evidence only",
+      });
+      return { verdict: "PASS", evidence: decision.evidence, feedback: decision.feedback };
+    }
+
+    return decision;
   }
 }

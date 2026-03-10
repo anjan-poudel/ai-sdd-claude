@@ -460,6 +460,86 @@ tasks:
   });
 });
 
+describe("WorkflowLoader: phase field resolution", () => {
+  it("use: standard-implement resolves phase to 'implement'", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    use: standard-implement
+    depends_on: []
+`, LIBRARY_DIR);
+    expect(graph.getTask("impl").phase).toBe("implement");
+  });
+
+  it("use: standard-review resolves phase to 'review'", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  a:
+    agent: dev
+    description: implement
+  review:
+    use: standard-review
+    description: review it
+    depends_on: [a]
+`, LIBRARY_DIR);
+    expect(graph.getTask("review").phase).toBe("review");
+  });
+
+  it("use: define-requirements resolves phase to 'requirements'", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  reqs:
+    use: define-requirements
+    depends_on: []
+`, LIBRARY_DIR);
+    expect(graph.getTask("reqs").phase).toBe("requirements");
+  });
+
+  it("inline phase overrides template phase", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  impl:
+    use: standard-implement
+    depends_on: []
+    phase: custom-phase
+`, LIBRARY_DIR);
+    expect(graph.getTask("impl").phase).toBe("custom-phase");
+  });
+
+  it("task without use: and no phase has undefined phase", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  a:
+    agent: dev
+    description: do something
+`, LIBRARY_DIR);
+    expect(graph.getTask("a").phase).toBeUndefined();
+  });
+
+  it("task without use: can set phase inline", () => {
+    const graph = WorkflowLoader.loadYAML(`
+version: "1"
+name: test
+tasks:
+  a:
+    agent: dev
+    description: do something
+    phase: implement
+`, LIBRARY_DIR);
+    expect(graph.getTask("a").phase).toBe("implement");
+  });
+});
+
 describe("WorkflowLoader: T022 example workflows load with defaults", () => {
   const examples = [
     "01-quickfix",

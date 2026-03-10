@@ -296,29 +296,29 @@ Overlay keys merge individually — setting `hil.enabled: false` does not clobbe
 
 ### Task Library (`use:`)
 
-Bundled templates in `data/task-library/`. Templates define the invariant properties of each task type. Policy overlays (HIL, risk tier) are left to the workflow `defaults:` or per-task overrides.
+Bundled templates in `data/task-library/`. Templates define the invariant properties of each task type — including `phase` for remote overlay filtering. Policy overlays (HIL, risk tier) are left to the workflow `defaults:` or per-task overrides.
 
 **Role primitives** — provide agent, contract and sensible defaults; policy set by workflow:
 
-| Template | Agent | HIL | Risk | Contract |
-|---|---|---|---|---|
-| `define-requirements` | `ba` | on | T0 | `requirements_doc` |
-| `design-architecture` | `architect` | on | T0 | `architecture_l1` |
-| `design-component` | `pe` | off | T0 | `component_design_l2` |
-| `plan-tasks` | `le` | off | T0 | `task_breakdown_l3` |
-| `standard-implement` | `dev` | off | T1 | `implementation` |
-| `standard-review` | `reviewer` | off | T1 | `review_report` |
+| Template | Phase | Agent | HIL | Risk | Contract |
+|---|---|---|---|---|---|
+| `define-requirements` | `requirements` | `ba` | on | T0 | `requirements_doc` |
+| `design-architecture` | `design` | `architect` | on | T0 | `architecture_l1` |
+| `design-component` | `design` | `pe` | off | T0 | `component_design_l2` |
+| `plan-tasks` | `planning` | `le` | off | T0 | `task_breakdown_l3` |
+| `standard-implement` | `implement` | `dev` | off | T1 | `implementation` |
+| `standard-review` | `review` | `reviewer` | off | T1 | `review_report` |
 
 **Named workflow stages** — complete task definitions; use directly by task ID:
 
-| Template | Semantic | HIL | Risk | Contract |
-|---|---|---|---|---|
-| `review-l1` | L1 architecture review | off | T1 | `review_report` |
-| `review-l2` | L2 component design review | off | T1 | `review_report` |
-| `review-implementation` | Final code review | off | T1 | `review_report` |
-| `security-design-review` | Security-focused design audit | off | T1 | `review_report` |
-| `security-test` | Security testing pass | off | T1 | `review_report` |
-| `final-sign-off` | T2 mandatory production gate | off | **T2** | `review_report` |
+| Template | Phase | Semantic | HIL | Risk | Contract |
+|---|---|---|---|---|---|
+| `review-l1` | `review` | L1 architecture review | off | T1 | `review_report` |
+| `review-l2` | `review` | L2 component design review | off | T1 | `review_report` |
+| `review-implementation` | `review` | Final code review | off | T1 | `review_report` |
+| `security-design-review` | `review` | Security-focused design audit | off | T1 | `review_report` |
+| `security-test` | `review` | Security testing pass | off | T1 | `review_report` |
+| `final-sign-off` | `sign-off` | T2 mandatory production gate | off | **T2** | `review_report` |
 
 Output paths use `{{task_id}}` substitution — a task named `design-l1` gets `specs/design-l1.md`.
 

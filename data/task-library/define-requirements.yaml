@@ -1,4 +1,5 @@
 name: define-requirements
+phase: requirements
 agent: ba
 description: |
   Elicit and document project requirements. Produce a structured folder of

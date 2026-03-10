@@ -1,4 +1,5 @@
 name: standard-review
+phase: review
 agent: reviewer
 description: |
   Review the task output against its acceptance criteria and issue a

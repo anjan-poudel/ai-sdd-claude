@@ -38,7 +38,7 @@ src/
     hooks.ts              # pre/post task hook registry
     session-resolver.ts   # multi-session path resolution (SessionContext)
   adapters/               # base-adapter.ts interface; mock, claude-code, openai impls
-  overlays/               # HIL, policy-gate, review, paired, confidence
+  overlays/               # HIL, policy-gate, review, paired, traceability, confidence
   cli/commands/           # one file per CLI subcommand
   constitution/           # resolver.ts merges root + specs/*/constitution.md + submodules
                           # manifest-writer.ts writes artifact index to constitution.md
@@ -77,7 +77,7 @@ Invalid transitions throw `StateError`.
 
 **Overlay chain order is locked** (enforced by `src/overlays/composition-rules.ts`):
 ```
-HIL → Evidence Gate → Agentic Review → Paired Workflow → Confidence → Agent Execution
+HIL → Evidence Gate → Agentic Review → Paired Workflow → Traceability → Confidence → Agent Execution
 ```
 Paired and Review are mutually exclusive. T2 risk tier always triggers HIL.
 
@@ -89,9 +89,11 @@ MCP server delegates to this command; it never writes files directly.
 
 **Confidence threshold is enforced** — `ConfidenceOverlay` gates task completion when `score < threshold`. A score below threshold returns `accept: false, new_status: NEEDS_REWORK` with feedback. Set `threshold: 0` to restore advisory-only behaviour. Default threshold: `0.7`.
 
+**Traceability overlay** — opt-in LLM-judge post-task gate (`overlays.traceability.enabled: true`) that reads the requirements lock file and verifies task outputs stay within requirements scope. Runs on `design` + `implement` phases. Returns `NEEDS_REWORK` if the judge finds out-of-scope elements. `evaluator_agent` must differ from the task's agent (validated at load time). Default: disabled. Lock file path: `specs/define-requirements.lock.yaml` (configurable via `lock_file`).
+
 **`status --next --json` is DAG-aware** — only PENDING tasks whose declared `depends_on` are all COMPLETED are returned as ready tasks. Blocked tasks are excluded even if their status is PENDING.
 
-**Workflow defaults + task library** — `workflow-loader.ts` applies a 4-layer merge per task: `ENGINE_TASK_DEFAULTS` → workflow `defaults:` block → task library template (`use:`) → task inline. Engine built-ins: `hil.enabled=true`, `policy_gate.risk_tier=T1`, `max_rework_iterations=3`. Overlay keys merge individually (not whole-object replace). `{{task_id}}` in library output paths is substituted at load time.
+**Workflow defaults + task library** — `workflow-loader.ts` applies a 4-layer merge per task: `ENGINE_TASK_DEFAULTS` → workflow `defaults:` block → task library template (`use:`) → task inline. Engine built-ins: `hil.enabled=true`, `policy_gate.risk_tier=T1`, `traceability.enabled=false`, `max_rework_iterations=3`. Overlay keys merge individually (not whole-object replace). `{{task_id}}` in library output paths is substituted at load time. Templates supply a `phase` field (`requirements`, `design`, `planning`, `implement`, `review`, `sign-off`) used by remote overlays for phase-based filtering.
 
 **Multi-session support** — `.ai-sdd/` supports concurrent feature sessions:
 ```
@@ -144,10 +146,10 @@ Feature overrides: `specs/<feature>/.ai-sdd/ai-sdd.yaml` is deep-merged over roo
 - `standards.strict: true`: makes missing standards files a hard error (default: warn)
 
 **Remote overlay integrations** — two MCP servers are wired into ai-sdd via native remote overlay support and configured in `.ai-sdd/ai-sdd.yaml`:
-- `repeatability-gate`: calls `repeatability-mcp-server` (`lock_validate` tool) as a `post_task` overlay on `implement` tasks. Validates requirement lock drift. Backend at `/Users/anjan/workspace/projects/ai/repeatability-mcp-server/dist/index.js`.
-- `coding-standards-gate`: calls `coding-standards-mcp-server` (`check_requirements` tool) as a `post_task` overlay on `implement` tasks. Backend at `/Users/anjan/workspace/projects/coding-standards/tools/mcp-server/dist/index.js` (warn-on-build if not built).
+- `repeatability-gate`: calls `repeatability-mcp-server` (`lock_validate` tool) as a `post_task` overlay on `design` + `implement` tasks. Validates requirement lock drift. Backend at `/Users/anjan/workspace/projects/ai/repeatability-mcp-server/dist/index.js`.
+- `coding-standards-gate`: calls `coding-standards-mcp-server` (`check_requirements` tool) as a `post_task` overlay on `design` + `implement` tasks. Backend at `/Users/anjan/workspace/projects/coding-standards/tools/mcp-server/dist/index.js` (warn-on-build if not built).
 
-Both are `blocking: false` (non-blocking) and `failure_policy: warn`. At `ai-sdd run` startup, each backend's command path is probed; if not found, a warning is printed and the overlay is skipped. Disable mechanisms:
+Both are `blocking: false` (non-blocking) and `failure_policy: warn`. When `blocking: false`, valid non-PASS verdicts (REWORK/FAIL) are suppressed to PASS with evidence preserved — they appear in event logs but do not gate task completion. At `ai-sdd run` startup, each backend's command path is probed; if not found, a warning is printed and the overlay is skipped. Disable mechanisms:
 - `AI_SDD_DISABLE_REMOTE_OVERLAYS=true` — skip all remote overlays for the run
 - `AI_SDD_DISABLE_OVERLAY_<NAME>=true` — skip one overlay by name (uppercase, hyphens→underscores), e.g. `AI_SDD_DISABLE_OVERLAY_REPEATABILITY_GATE=true`
 - `enabled: false` in the `remote_overlays` config entry — persistent disable, no warning

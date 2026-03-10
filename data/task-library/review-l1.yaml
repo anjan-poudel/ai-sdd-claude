@@ -1,4 +1,5 @@
 name: review-l1
+phase: review
 agent: reviewer
 description: |
   Review the L1 architecture document. Verify it addresses all requirements,

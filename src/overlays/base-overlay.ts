@@ -2,7 +2,7 @@
  * BaseOverlay interface and overlay chain types.
  *
  * Overlay chain order (locked):
- *   HIL (default ON) → Evidence Gate → Agentic Review → Paired Workflow → Confidence Loop → Agent Execution
+ *   HIL (default ON) → Evidence Gate → Agentic Review → Paired Workflow → Traceability → Confidence Loop → Agent Execution
  */
 
 import type { TaskDefinition, AgentContext, TaskResult } from "../types/index.ts";

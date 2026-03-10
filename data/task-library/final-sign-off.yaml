@@ -1,4 +1,5 @@
 name: final-sign-off
+phase: sign-off
 agent: reviewer
 description: |
   Produce change summary document for human sign-off. Include:

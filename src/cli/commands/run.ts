@@ -17,6 +17,7 @@ import { PolicyGateOverlay } from "../../overlays/policy-gate/gate-overlay.ts";
 import { ReviewOverlay } from "../../overlays/review/review-overlay.ts";
 import { PairedOverlay } from "../../overlays/paired/paired-overlay.ts";
 import { ConfidenceOverlay } from "../../overlays/confidence/confidence-overlay.ts";
+import { TraceabilityOverlay } from "../../overlays/traceability/traceability-overlay.ts";
 import { buildProviderChain } from "../../overlays/registry.ts";
 import { resolveBackendTools } from "../../overlays/mcp/mcp-client.ts";
 import { ObservabilityEmitter } from "../../observability/emitter.ts";
@@ -217,6 +218,7 @@ export function registerRunCommand(program: Command): void {
           policy_gate: new PolicyGateOverlay(outputsDir, emitter),
           review: new ReviewOverlay(emitter, { enabled: false }, adapter, session.reviewLogsDir),
           paired: new PairedOverlay(emitter, { enabled: false }, adapter, session.pairSessionsDir),
+          traceability: new TraceabilityOverlay(emitter, { enabled: false }, adapter),
           confidence: new ConfidenceOverlay(emitter, {}, adapter),
         },
         ...(remoteConfig !== undefined && { remoteConfig }),

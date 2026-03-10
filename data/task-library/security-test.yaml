@@ -1,4 +1,5 @@
 name: security-test
+phase: review
 agent: reviewer
 description: |
   Security testing pass on the implementation. Test:

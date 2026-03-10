@@ -3,8 +3,8 @@
 ## Overview
 
 ai-sdd integrates two external MCP servers as remote overlays via its native remote overlay
-support. Both servers run as `post_task` gates on `implement` phase tasks, providing
-evidence-based checks without blocking the workflow (non-blocking, failure policy: warn).
+support. Both servers run as `post_task` gates on `design` and `implement` phase tasks,
+providing evidence-based checks without blocking the workflow (non-blocking, failure policy: warn).
 
 ## Backends
 
@@ -17,7 +17,7 @@ evidence-based checks without blocking the workflow (non-blocking, failure polic
 | Tool     | `lock_validate` |
 | Script   | `/Users/anjan/workspace/projects/ai/repeatability-mcp-server/dist/index.js` |
 | Hooks    | `post_task` |
-| Phases   | `implement` |
+| Phases   | `design`, `implement` |
 | Blocking | false |
 | failure_policy | warn |
 
@@ -34,7 +34,7 @@ and detects coverage gaps. Uses the `lock_validate` tool from `requirement-lock-
 | Tool     | `check_requirements` |
 | Script   | `/Users/anjan/workspace/projects/coding-standards/tools/mcp-server/dist/index.js` |
 | Hooks    | `post_task` |
-| Phases   | `implement` |
+| Phases   | `design`, `implement` |
 | Blocking | false |
 | failure_policy | warn |
 
@@ -56,6 +56,17 @@ skipped for that run:
 ```
 
 System commands (e.g. `node`, `bun`) are not probed — only file paths are checked.
+
+## Phase-Based Filtering
+
+Remote overlays declare `phases: [design, implement]` in config. The provider chain skips an
+overlay when the task's `phase` field does not match. Task library templates supply this field
+(e.g. `standard-implement.yaml` → `phase: implement`, `design-architecture.yaml` → `phase: design`),
+ensuring remote overlays fire only on design and implementation tasks. Tasks without a `phase`
+field are conservatively skipped.
+
+Standard phase values used in task-library templates:
+`requirements`, `design`, `planning`, `implement`, `review`, `sign-off`.
 
 ## Disable Mechanisms
 
@@ -85,7 +96,7 @@ remote_overlays:
     backend: coding-standards-mcp
     enabled: false   # silently skipped, no warning
     hooks: [post_task]
-    phases: [implement]
+    phases: [design, implement]
     blocking: false
 ```
 
@@ -103,6 +114,8 @@ Both overlays inherit the standard McpOverlayProvider failure model:
 - **Tier 2 (schema)** — always `fail_closed`. If MCP response fails `OverlayInvokeOutputSchema`
   validation, returns `FAIL` verdict regardless of `failure_policy`.
 - **blocking: false** — overrides Tier 1 to effectively `warn` regardless of `failure_policy`.
+  Additionally, valid non-PASS verdicts (REWORK/FAIL) are suppressed to PASS with evidence
+  preserved — they appear in event logs (`overlay.remote.suppressed`) but do not gate the task.
   Schema (Tier 2) failures still propagate.
 
 ## Config Location

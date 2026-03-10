@@ -285,11 +285,49 @@ export const HilNotifyFailedEvent = BaseEventSchema.extend({
   }).passthrough(),
 });
 
+export const OverlayRemoteSuppressedEvent = BaseEventSchema.extend({
+  type: z.literal("overlay.remote.suppressed"),
+  data: z.object({
+    overlay_name: z.string(),
+    backend_id: z.string(),
+    hook: z.enum(["pre_task", "post_task"]),
+    task_id: z.string(),
+    original_verdict: z.enum(["PASS", "REWORK", "FAIL", "HIL"]),
+    reason: z.string(),
+  }).passthrough(),
+});
+
 export const PairedNotImplementedEvent = BaseEventSchema.extend({
   type: z.literal("paired.not_implemented"),
   data: z.object({
     task_id: z.string(),
     message: z.string(),
+  }).passthrough(),
+});
+
+export const TraceabilityEvaluatedEvent = BaseEventSchema.extend({
+  type: z.literal("traceability.evaluated"),
+  data: z.object({
+    task_id: z.string(),
+    in_scope: z.boolean(),
+    findings: z.array(z.string()),
+    evaluator_agent: z.string(),
+  }).passthrough(),
+});
+
+export const TraceabilitySkippedEvent = BaseEventSchema.extend({
+  type: z.literal("traceability.skipped"),
+  data: z.object({
+    task_id: z.string(),
+    reason: z.string(),
+  }).passthrough(),
+});
+
+export const TraceabilityFailedEvent = BaseEventSchema.extend({
+  type: z.literal("traceability.failed"),
+  data: z.object({
+    task_id: z.string(),
+    error: z.string(),
   }).passthrough(),
 });
 

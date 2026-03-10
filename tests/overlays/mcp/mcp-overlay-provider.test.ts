@@ -685,6 +685,116 @@ describe("McpOverlayProvider: post_task hook", () => {
   });
 });
 
+// ─── blocking: false — Verdict Suppression (Tier 2 valid verdicts) ──────────────
+
+describe("McpOverlayProvider: blocking=false — non-PASS verdict suppression", () => {
+  it("blocking: false + REWORK verdict → returns PASS with evidence preserved", async () => {
+    const { emitter } = makeEmitter();
+    const factory = makeMockClientFactory({
+      callToolResult: validResponse("REWORK", {
+        feedback: "Missing coverage.",
+        evidence: { overlay_id: "rep-gate", checks: ["drift-check"] },
+      }),
+    });
+    const provider = new McpOverlayProvider(
+      "test-overlay",
+      makeOverlayConfig({ hooks: ["post_task"], blocking: false }),
+      makeBackendConfig(),
+      emitter,
+      factory,
+    );
+
+    const decision = await provider.invokePost!(makeOverlayContext(), makeTaskResult());
+    expect(decision.verdict).toBe("PASS");
+    expect(decision.evidence?.overlay_id).toBe("rep-gate");
+    expect(decision.evidence?.checks).toEqual(["drift-check"]);
+    expect(decision.feedback).toBe("Missing coverage.");
+  });
+
+  it("blocking: false + FAIL verdict → returns PASS with evidence preserved", async () => {
+    const { emitter } = makeEmitter();
+    const factory = makeMockClientFactory({
+      callToolResult: validResponse("FAIL", {
+        feedback: "Security violation.",
+        evidence: { overlay_id: "sec-check", data: { severity: "high" } },
+      }),
+    });
+    const provider = new McpOverlayProvider(
+      "test-overlay",
+      makeOverlayConfig({ hooks: ["post_task"], blocking: false }),
+      makeBackendConfig(),
+      emitter,
+      factory,
+    );
+
+    const decision = await provider.invokePost!(makeOverlayContext(), makeTaskResult());
+    expect(decision.verdict).toBe("PASS");
+    expect(decision.evidence?.overlay_id).toBe("sec-check");
+    expect(decision.evidence?.data?.["severity"]).toBe("high");
+  });
+
+  it("blocking: true + REWORK verdict → returns REWORK (unchanged)", async () => {
+    const { emitter } = makeEmitter();
+    const factory = makeMockClientFactory({
+      callToolResult: validResponse("REWORK", { feedback: "Needs work." }),
+    });
+    const provider = new McpOverlayProvider(
+      "test-overlay",
+      makeOverlayConfig({ hooks: ["post_task"], blocking: true }),
+      makeBackendConfig(),
+      emitter,
+      factory,
+    );
+
+    const decision = await provider.invokePost!(makeOverlayContext(), makeTaskResult());
+    expect(decision.verdict).toBe("REWORK");
+    expect(decision.feedback).toBe("Needs work.");
+  });
+
+  it("blocking: false + PASS verdict → returns PASS (no suppression)", async () => {
+    const { emitter, events } = makeEmitter();
+    const factory = makeMockClientFactory({
+      callToolResult: validResponse("PASS"),
+    });
+    const provider = new McpOverlayProvider(
+      "test-overlay",
+      makeOverlayConfig({ hooks: ["post_task"], blocking: false }),
+      makeBackendConfig(),
+      emitter,
+      factory,
+    );
+
+    const decision = await provider.invokePost!(makeOverlayContext(), makeTaskResult());
+    expect(decision.verdict).toBe("PASS");
+
+    // No suppression event should be emitted for PASS verdicts
+    const suppressedEvent = events.find((e) => e.type === "overlay.remote.suppressed");
+    expect(suppressedEvent).toBeUndefined();
+  });
+
+  it("blocking: false + suppression emits overlay.remote.suppressed event", async () => {
+    const { emitter, events } = makeEmitter();
+    const factory = makeMockClientFactory({
+      callToolResult: validResponse("REWORK", { feedback: "Feedback text." }),
+    });
+    const provider = new McpOverlayProvider(
+      "test-overlay",
+      makeOverlayConfig({ hooks: ["post_task"], blocking: false }),
+      makeBackendConfig(),
+      emitter,
+      factory,
+    );
+
+    await provider.invokePost!(makeOverlayContext(), makeTaskResult());
+
+    const suppressedEvent = events.find((e) => e.type === "overlay.remote.suppressed");
+    expect(suppressedEvent).toBeDefined();
+    expect(suppressedEvent?.data["overlay_name"]).toBe("test-overlay");
+    expect(suppressedEvent?.data["original_verdict"]).toBe("REWORK");
+    expect(suppressedEvent?.data["reason"]).toContain("non-blocking");
+  });
+});
+
 // ─── Security: Sanitizer is Applied by Emitter ────────────────────────────────
 
 describe("McpOverlayProvider: security — sanitizer applied by emitter", () => {

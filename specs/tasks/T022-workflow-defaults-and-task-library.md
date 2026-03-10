@@ -138,25 +138,30 @@ contexts.
 
 **Role primitives** — provide the agent role and contract; policy comes from workflow defaults:
 
-| Template | Agent | Contract | HIL | Risk |
-|---|---|---|---|---|
-| `define-requirements` | `ba` | `requirements_doc` | on | T0 |
-| `design-architecture` | `architect` | `architecture_l1` | on | T0 |
-| `design-component` | `pe` | `component_design_l2` | off | T0 |
-| `plan-tasks` | `le` | `task_breakdown_l3` | off | T0 |
-| `standard-implement` | `dev` | `implementation` | off | T1 |
-| `standard-review` | `reviewer` | `review_report` | off | T1 |
+| Template | Phase | Agent | Contract | HIL | Risk |
+|---|---|---|---|---|---|
+| `define-requirements` | `requirements` | `ba` | `requirements_doc` | on | T0 |
+| `design-architecture` | `design` | `architect` | `architecture_l1` | on | T0 |
+| `design-component` | `design` | `pe` | `component_design_l2` | off | T0 |
+| `plan-tasks` | `planning` | `le` | `task_breakdown_l3` | off | T0 |
+| `standard-implement` | `implement` | `dev` | `implementation` | off | T1 |
+| `standard-review` | `review` | `reviewer` | `review_report` | off | T1 |
 
 **Named workflow stages** — complete task definitions; use directly by task ID:
 
-| Template | Semantic | Agent | Contract | HIL | Risk |
-|---|---|---|---|---|---|
-| `review-l1` | L1 architecture review | `reviewer` | `review_report` | off | T1 |
-| `review-l2` | L2 component design review | `reviewer` | `review_report` | off | T1 |
-| `review-implementation` | Final code review | `reviewer` | `review_report` | off | T1 |
-| `security-design-review` | Security-focused design audit | `reviewer` | `review_report` | off | T1 |
-| `security-test` | Security testing pass | `reviewer` | `review_report` | off | T1 |
-| `final-sign-off` | T2 mandatory production gate | `reviewer` | `review_report` | off | T2 |
+| Template | Phase | Semantic | Agent | Contract | HIL | Risk |
+|---|---|---|---|---|---|---|
+| `review-l1` | `review` | L1 architecture review | `reviewer` | `review_report` | off | T1 |
+| `review-l2` | `review` | L2 component design review | `reviewer` | `review_report` | off | T1 |
+| `review-implementation` | `review` | Final code review | `reviewer` | `review_report` | off | T1 |
+| `security-design-review` | `review` | Security-focused design audit | `reviewer` | `review_report` | off | T1 |
+| `security-test` | `review` | Security testing pass | `reviewer` | `review_report` | off | T1 |
+| `final-sign-off` | `sign-off` | T2 mandatory production gate | `reviewer` | `review_report` | off | T2 |
+
+**Phase values** — used by remote overlays for phase-based filtering (e.g. `repeatability-gate`
+and `coding-standards-gate` run only on `implement` phase tasks). Standard phases:
+`requirements`, `design`, `planning`, `implement`, `review`, `sign-off`. Override per-task
+inline when needed.
 
 **Task ID naming convention:**
 Task IDs should reflect the task's **position in the workflow**, not the template name.
@@ -211,6 +216,7 @@ check across all components is needed as a final gate.
 **`define-requirements.yaml`**
 ```yaml
 name: define-requirements
+phase: requirements
 agent: ba
 outputs:
   - path: ".ai-sdd/outputs/{{task_id}}.md"
@@ -220,6 +226,7 @@ outputs:
 **`design-architecture.yaml`**
 ```yaml
 name: design-architecture
+phase: design
 agent: architect
 outputs:
   - path: ".ai-sdd/outputs/{{task_id}}.md"
@@ -229,6 +236,7 @@ outputs:
 **`design-component.yaml`**
 ```yaml
 name: design-component
+phase: design
 agent: pe
 outputs:
   - path: ".ai-sdd/outputs/{{task_id}}.md"
@@ -238,6 +246,7 @@ outputs:
 **`plan-tasks.yaml`**
 ```yaml
 name: plan-tasks
+phase: planning
 agent: le
 outputs:
   - path: ".ai-sdd/outputs/{{task_id}}.md"
@@ -247,6 +256,7 @@ outputs:
 **`standard-review.yaml`**
 ```yaml
 name: standard-review
+phase: review
 agent: reviewer
 overlays:
   hil:         { enabled: false }
@@ -260,6 +270,7 @@ outputs:
 **`standard-implement.yaml`**
 ```yaml
 name: standard-implement
+phase: implement
 agent: dev
 overlays:
   hil:         { enabled: false }
@@ -302,6 +313,7 @@ Override overlays only (e.g. regulated workflow needs T2 on architecture):
 | `overlays.*` | Yes | Per-overlay-key merge |
 | `max_rework_iterations` | Yes | Scalar override |
 | `exit_conditions` | Yes | Prepended to task's list |
+| `phase` | **No** | Must come via `use:` or per-task inline; used for remote overlay filtering |
 | `agent` | **No** | Must come via `use:` or per-task inline |
 | `description` | **No** | May come from template (`use:`) or per-task inline; validated post-merge |
 | `depends_on` | **No** | No meaningful global default |

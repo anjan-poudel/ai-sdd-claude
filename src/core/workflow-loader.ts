@@ -63,12 +63,19 @@ const TaskOverlayReviewSchema = z.object({
   max_iterations: z.number().int().positive().optional(),
 });
 
+const TaskOverlayTraceabilitySchema = z.object({
+  enabled: z.boolean().optional(),
+  lock_file: z.string().optional(),
+  evaluator_agent: z.string().optional(),
+});
+
 const TaskOverlaysSchema = z.object({
   hil: TaskOverlayHilSchema.optional(),
   policy_gate: TaskOverlayPolicyGateSchema.optional(),
   confidence: TaskOverlayConfidenceSchema.optional(),
   paired: TaskOverlayPairedSchema.optional(),
   review: TaskOverlayReviewSchema.optional(),
+  traceability: TaskOverlayTraceabilitySchema.optional(),
 });
 
 const WorkflowDefaultsSchema = z.object({
@@ -99,6 +106,7 @@ const WorkflowConfigSchema = z.object({
 /** Schema for task library template files. */
 const LibraryTemplateSchema = z.object({
   name: z.string(),
+  phase: z.string().optional(),
   agent: z.string().min(1, "agent is required in library template"),
   description: z.string().optional(),  // optional in template; validated post-merge
   outputs: z.array(TaskOutputSchema).optional(),
@@ -135,6 +143,7 @@ type LooseTaskOverlays = {
   confidence?: { enabled?: boolean | undefined; threshold?: number | undefined; metrics?: Array<{ type: string; weight?: number; evaluator_agent?: string }> | undefined } | undefined;
   paired?: { enabled?: boolean | undefined; driver_agent?: string | undefined; challenger_agent?: string | undefined; role_switch?: "session" | "subtask" | "checkpoint" | undefined; max_iterations?: number | undefined } | undefined;
   review?: { enabled?: boolean | undefined; coder_agent?: string | undefined; reviewer_agent?: string | undefined; max_iterations?: number | undefined } | undefined;
+  traceability?: { enabled?: boolean | undefined; lock_file?: string | undefined; evaluator_agent?: string | undefined } | undefined;
 };
 
 function normalizeTaskOverlays(
@@ -177,6 +186,13 @@ function normalizeTaskOverlays(
       ...(overlays.review.coder_agent !== undefined && { coder_agent: overlays.review.coder_agent }),
       ...(overlays.review.reviewer_agent !== undefined && { reviewer_agent: overlays.review.reviewer_agent }),
       ...(overlays.review.max_iterations !== undefined && { max_iterations: overlays.review.max_iterations }),
+    };
+  }
+  if (overlays.traceability !== undefined) {
+    normalized.traceability = {
+      ...(overlays.traceability.enabled !== undefined && { enabled: overlays.traceability.enabled }),
+      ...(overlays.traceability.lock_file !== undefined && { lock_file: overlays.traceability.lock_file }),
+      ...(overlays.traceability.evaluator_agent !== undefined && { evaluator_agent: overlays.traceability.evaluator_agent }),
     };
   }
 
@@ -354,6 +370,7 @@ export class WorkflowLoader {
     if (inline.use) {
       const template = WorkflowLoader.loadLibraryTemplate(inline.use, libraryDir);
       resolved.agent = template.agent;
+      if (template.phase) resolved.phase = template.phase;
       if (template.description) resolved.description = template.description;
       if (template.outputs) resolved.outputs = normalizeTaskOutputs(template.outputs);
       if (template.exit_conditions?.length) {
@@ -375,6 +392,7 @@ export class WorkflowLoader {
 
     // Layer 4: task inline definition (always wins)
     if (inline.agent) resolved.agent = inline.agent;
+    if (inline.phase) resolved.phase = inline.phase;
     if (inline.description) resolved.description = inline.description;
     if (inline.depends_on) resolved.depends_on = inline.depends_on;
     if (inline.outputs) resolved.outputs = normalizeTaskOutputs(inline.outputs);
@@ -491,6 +509,16 @@ export class WorkflowLoader {
         if (reviewerAgent && reviewerAgent === coderAgent) {
           throw new Error(
             `Task '${taskId}': review overlay reviewer_agent ('${reviewerAgent}') must differ from coder_agent ('${coderAgent}'). Reviewer independence required.`,
+          );
+        }
+      }
+
+      // Traceability overlay: evaluator_agent must differ from task agent
+      if (task.overlays?.traceability?.enabled) {
+        const traceEvaluator = task.overlays.traceability.evaluator_agent;
+        if (traceEvaluator && traceEvaluator === task.agent) {
+          throw new Error(
+            `Task '${taskId}': traceability evaluator_agent ('${traceEvaluator}') must differ from task agent ('${task.agent}'). An agent cannot evaluate its own output scope.`,
           );
         }
       }

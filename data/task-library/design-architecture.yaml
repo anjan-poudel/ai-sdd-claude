@@ -1,4 +1,5 @@
 name: design-architecture
+phase: design
 agent: architect
 description: |
   Produce the L1 system architecture document. Define system components,
