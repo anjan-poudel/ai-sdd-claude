@@ -1,0 +1,235 @@
+{
+  "schema_version": "1",
+  "workflow": "async-agents-sdd",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/async-agents",
+  "started_at": "2026-03-10T14:52:15.526Z",
+  "updated_at": "2026-03-11T06:42:16.321Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T15:15:21.734Z",
+      "completed_at": "2026-03-10T15:25:17.194036+00:00",
+      "outputs": [
+        {
+          "path": "specs/define-requirements.md",
+          "contract": "requirements_doc"
+        }
+      ],
+      "iterations": 1,
+      "hil_item_id": "9948ad0d-3794-4a33-b886-43a0cb96ece3",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "9948ad0d-3794-4a33-b886-43a0cb96ece3"
+        }
+      }
+    },
+    "design-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T15:30:00.000Z",
+      "completed_at": "2026-03-10T15:38:28.308604+00:00",
+      "outputs": [
+        {
+          "path": "specs/design-l1.md",
+          "contract": "architecture_l1"
+        }
+      ],
+      "iterations": 1,
+      "hil_item_id": "33ecf678-e715-45f5-bb02-171552869af2",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "33ecf678-e715-45f5-bb02-171552869af2"
+        }
+      }
+    },
+    "review-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T15:39:13.034511+00:00",
+      "completed_at": "2026-03-10T15:39:13.034511+00:00",
+      "outputs": [
+        {
+          "path": "specs/review-l1.md",
+          "contract": "review_report",
+          "auto_approved": true
+        }
+      ],
+      "iterations": 1
+    },
+    "design-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T16:53:09.288Z",
+      "completed_at": "2026-03-10T17:15:34.945Z",
+      "outputs": [
+        {
+          "path": "specs/design-l2.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T17:51:57.745179+00:00",
+      "completed_at": "2026-03-10T17:51:57.745179+00:00",
+      "outputs": [
+        {
+          "path": "specs/review-l2.md",
+          "contract": "review_report",
+          "auto_approved": true
+        }
+      ],
+      "iterations": 1
+    },
+    "plan-tasks": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T10:00:00.000Z",
+      "completed_at": "2026-03-10T18:50:02.956Z",
+      "outputs": [
+        {
+          "path": "specs/plan-tasks/plan.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "implement-async-engine": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T22:04:19.793Z",
+      "completed_at": "2026-03-10T22:04:24.514Z",
+      "outputs": [
+        {
+          "path": "specs/implement-async-engine-notes.md",
+          "contract": "implementation"
+        }
+      ],
+      "iterations": 0
+    },
+    "implement-slack-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T22:04:19.793Z",
+      "completed_at": "2026-03-10T22:04:31.628Z",
+      "outputs": [
+        {
+          "path": "specs/implement-slack-adapter-notes.md",
+          "contract": "implementation"
+        }
+      ],
+      "iterations": 0
+    },
+    "implement-confluence-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T22:04:19.793Z",
+      "completed_at": "2026-03-10T22:04:31.719Z",
+      "outputs": [
+        {
+          "path": "specs/implement-confluence-adapter-notes.md",
+          "contract": "implementation"
+        }
+      ],
+      "iterations": 0
+    },
+    "implement-jira-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T22:04:19.793Z",
+      "completed_at": "2026-03-10T22:04:31.807Z",
+      "outputs": [
+        {
+          "path": "specs/implement-jira-adapter-notes.md",
+          "contract": "implementation"
+        }
+      ],
+      "iterations": 0
+    },
+    "implement-bitbucket-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-10T22:04:19.793Z",
+      "completed_at": "2026-03-10T22:04:31.894Z",
+      "outputs": [
+        {
+          "path": "specs/implement-bitbucket-adapter-notes.md",
+          "contract": "implementation"
+        }
+      ],
+      "iterations": 0
+    },
+    "implement-mvp1-integration": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T00:00:00.000Z",
+      "completed_at": "2026-03-10T22:16:45.468Z",
+      "outputs": [
+        {
+          "path": "specs/implement-mvp1-integration-notes.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-mvp1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T03:20:00.000Z",
+      "completed_at": "2026-03-11T03:17:12.484Z",
+      "outputs": [
+        {
+          "path": "specs/review-mvp1.md",
+          "contract": "review_report"
+        }
+      ],
+      "iterations": 1
+    },
+    "mvp2-implement-github-issues-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T03:44:00.661Z",
+      "completed_at": "2026-03-11T03:49:59.403Z",
+      "outputs": [
+        {
+          "path": "specs/mvp2-implement-github-issues-adapter-notes.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "mvp2-implement-github-pr-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T03:44:00.661Z",
+      "completed_at": "2026-03-11T03:50:45.753Z",
+      "outputs": [
+        {
+          "path": "specs/mvp2-implement-github-pr-adapter-notes.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "mvp2-implement-github-project-adapter": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T03:44:00.661Z",
+      "completed_at": "2026-03-11T03:51:05.125Z",
+      "outputs": [
+        {
+          "path": "specs/mvp2-implement-github-project-adapter-notes.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "mvp2-implement-integration": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T04:01:30.805Z",
+      "completed_at": "2026-03-11T04:04:35.226Z",
+      "outputs": [
+        {
+          "path": "specs/mvp2-implement-integration-notes.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "mvp2-review": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-11T06:40:30.000Z",
+      "completed_at": "2026-03-11T06:42:16.321Z",
+      "outputs": [
+        {
+          "path": "specs/mvp2-review.md"
+        }
+      ],
+      "iterations": 0
+    }
+  }
+}

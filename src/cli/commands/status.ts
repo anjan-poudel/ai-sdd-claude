@@ -17,13 +17,16 @@ function formatDuration(ms: number): string {
 }
 
 const STATUS_SYMBOLS: Record<TaskStatus, string> = {
-  PENDING: "○",
-  RUNNING: "◉",
-  COMPLETED: "✓",
-  NEEDS_REWORK: "↺",
-  HIL_PENDING: "⏳",
-  FAILED: "✗",
-  CANCELLED: "⊘",
+  PENDING:           "○",
+  RUNNING:           "◉",
+  COMPLETED:         "✓",
+  NEEDS_REWORK:      "↺",
+  HIL_PENDING:       "⏳",
+  FAILED:            "✗",
+  CANCELLED:         "⊘",
+  AWAITING_APPROVAL: "⏳",
+  APPROVED:          "✓",
+  DOING:             "◉",
 };
 
 export function registerStatusCommand(program: Command): void {

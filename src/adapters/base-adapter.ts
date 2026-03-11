@@ -26,10 +26,19 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   backoff_max_ms: 30000,
 };
 
+export interface SamplingParams {
+  /** Override temperature for this dispatch only (0.0–1.0). */
+  temperature?: number;
+  /** Override top_p nucleus sampling for this dispatch only (0.0–1.0). */
+  top_p?: number;
+}
+
 export interface DispatchOptions {
   operation_id: string;
   attempt_id: string;
   timeout_ms?: number;
+  /** Sampling parameter overrides — set by the engine on regeneration retries. */
+  sampling_params?: SamplingParams;
 }
 
 export abstract class RuntimeAdapter {

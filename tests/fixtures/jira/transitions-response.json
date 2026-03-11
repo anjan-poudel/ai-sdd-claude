@@ -1,0 +1,28 @@
+{
+  "transitions": [
+    {
+      "id": "11",
+      "name": "Start Progress",
+      "to": {
+        "name": "In Progress",
+        "id": "10001"
+      }
+    },
+    {
+      "id": "21",
+      "name": "Done",
+      "to": {
+        "name": "Done",
+        "id": "10002"
+      }
+    },
+    {
+      "id": "31",
+      "name": "In Review",
+      "to": {
+        "name": "In Review",
+        "id": "10003"
+      }
+    }
+  ]
+}

@@ -619,32 +619,72 @@ Session state persisted to `.ai-sdd/sessions/<session>/pair-sessions/<task-id>.j
 
 ### Confidence Overlay
 
-Scores the agent's output on a 0–1 scale. Below threshold → `NEEDS_REWORK`.
+Scores the agent's output on a 0–1 scale. Below `threshold` → `NEEDS_REWORK`. Below the optional `low_confidence_threshold` → automatic regeneration + escalation chain.
+
+The overlay is **disabled by default**. Default `threshold`: `0.7`.
 
 ```yaml
 overlays:
   confidence:
     enabled: true
-    threshold: 0.85    # 0.0 = advisory only, default 0.7
+    threshold: 0.80             # quality bar — below this → NEEDS_REWORK
+    low_confidence_threshold: 0.50   # crisis level — triggers regen chain (disabled by default)
+    max_regeneration_retries: 3      # regen attempts before escalation (default 3)
+    regen_sampling_schedule:         # per-retry sampling overrides
+      - { top_p: 0.9, temperature: 0.2 }
+      - { top_p: 0.8, temperature: 0.4 }
+      - { top_p: 0.7, temperature: 0.6 }
     metrics:
-      - type: keyword_match
+      - type: output_completeness
+        weight: 0.4
+      - type: contract_compliance
         weight: 0.3
       - type: llm_judge
         evaluator_agent: reviewer
-        weight: 0.7
+        weight: 0.3
 ```
 
 **Metric types:**
 
 | Type | Description |
 |---|---|
-| `keyword_match` | Presence of expected keywords in output |
-| `length_check` | Output length within expected range |
+| `output_completeness` | Fraction of expected output sections/fields present |
+| `contract_compliance` | Whether declared artifact contract is satisfied |
+| `lint_pass` | Boolean lint clean (1.0 or 0.0) |
 | `llm_judge` | Dispatches a separate evaluator agent; score from `handover_state.score` (0.0–1.0) |
 
-**`llm_judge` details:** The evaluator agent is dispatched independently. On failure (adapter error) the score defaults to 0.5 neutral — a transient evaluator outage does not cascade into task failure.
+**`llm_judge` constraint:** `evaluator_agent` must be set and must differ from the task agent. Validated at workflow load time.
 
-**Constraint:** `llm_judge.evaluator_agent` must be set and must differ from the task agent. Validated at workflow load time.
+#### Two-Threshold Model
+
+| Threshold | Key | Default | Effect |
+|---|---|---|---|
+| Quality bar | `threshold` | `0.7` | `score < threshold` → `NEEDS_REWORK` |
+| Crisis level | `low_confidence_threshold` | *(disabled)* | `score < low_confidence_threshold` → regen chain |
+
+#### Regeneration + Escalation Chain
+
+When `score < low_confidence_threshold` the engine pursues higher-quality output rather than accepting poor work:
+
+1. **Regeneration retries** — re-dispatch the task up to `max_regeneration_retries` times (default 3). Each retry applies the next entry in `regen_sampling_schedule` to nudge the model toward different outputs (`top_p` + `temperature`). If any retry passes confidence → task continues normally.
+
+2. **Paired challenger escalation** — if retries are exhausted and `paired` mode is enabled, the challenger agent is dispatched once. If the challenger output passes confidence → task continues.
+
+3. **HIL escalation** — if the challenger also fails (or paired mode is not enabled), a HIL item is created. On human resolve the task runs one rework iteration with the operator's notes. On reject → `FAILED`.
+
+Regeneration retries do **not** consume `max_rework_iterations` budget.
+
+#### Sampling Schedule
+
+The default schedule progressively increases diversity on each retry:
+
+| Retry | `top_p` | `temperature` |
+|---|---|---|
+| 1st | 0.9 | 0.2 |
+| 2nd | 0.8 | 0.4 |
+| 3rd | 0.7 | 0.6 |
+
+If the retry count exceeds the schedule length, the last entry is reused. Sampling params are only honoured by direct-mode adapters (OpenAI); delegation-mode adapters (claude_code) ignore them.
 
 ---
 

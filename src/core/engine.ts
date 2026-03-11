@@ -6,7 +6,7 @@
 import type { AgentConfig, TaskDefinition, TaskStatus, TaskOutput, TokenUsage } from "../types/index.ts";
 import type { WorkflowGraph } from "./workflow-loader.ts";
 import type { StateManager } from "./state-manager.ts";
-import type { RuntimeAdapter } from "../adapters/base-adapter.ts";
+import type { RuntimeAdapter, SamplingParams } from "../adapters/base-adapter.ts";
 import type { AgentRegistry } from "./agent-loader.ts";
 import type { ConstitutionResolver } from "../constitution/resolver.ts";
 import type { ManifestWriter } from "../constitution/manifest-writer.ts";
@@ -18,6 +18,18 @@ import type { OverlayProvider, OverlayDecision, OverlayVerdict, OverlayContext }
 import { runPreProviderChain, runPostProviderChain } from "../overlays/provider-chain.ts";
 import type { LocalOverlayProvider } from "../overlays/local-overlay-provider.ts";
 import { validateAdapterOutputs } from "../security/output-validator.ts";
+
+/**
+ * Default sampling parameter schedule for regeneration retries.
+ * Each entry corresponds to retry attempt 1, 2, 3, … (0-indexed: attempt N uses index N-1).
+ * Higher retry = more diversity: top_p decreases (narrower nucleus), temperature increases.
+ * The last entry is reused if retries exceed the schedule length.
+ */
+const DEFAULT_REGEN_SAMPLING_SCHEDULE: SamplingParams[] = [
+  { top_p: 0.9, temperature: 0.2 },
+  { top_p: 0.8, temperature: 0.4 },
+  { top_p: 0.7, temperature: 0.6 },
+];
 
 export interface EngineConfig {
   max_concurrent_tasks?: number;
@@ -212,12 +224,61 @@ export class Engine {
     const taskDef = this.workflow.getTask(taskId);
     const agent = this.agentRegistry.resolve(taskDef.agent);
     const maxIterations = taskDef.max_rework_iterations ?? 3;
+    const maxRegenRetries = taskDef.overlays?.confidence?.max_regeneration_retries ?? 3;
+
+    let regenCount = 0;
 
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
-      const success = await this.runTaskIteration(taskId, taskDef, agent, iteration);
-      if (success === "COMPLETED") return true;
-      if (success === "FAILED") return false;
-      // NEEDS_REWORK: loop
+      const outcome = await this.runTaskIteration(taskId, taskDef, agent, iteration, regenCount);
+      if (outcome === "COMPLETED") return true;
+      if (outcome === "FAILED") return false;
+
+      if (outcome === "REGENERATE") {
+        regenCount++;
+        const samplingParams = this.resolveRegenSamplingParams(taskDef, regenCount);
+        this.emitter.emit("confidence.regenerating", {
+          task_id: taskId,
+          attempt: regenCount,
+          max_retries: maxRegenRetries,
+          sampling_params: samplingParams,
+        });
+
+        if (regenCount <= maxRegenRetries) {
+          // Retry — don't count against max_rework_iterations; do not increment iteration
+          iteration--;
+          continue;
+        }
+
+        // Retries exhausted — escalate
+        this.emitter.emit("confidence.retries_exhausted", {
+          task_id: taskId,
+          regen_attempts: regenCount,
+        });
+
+        const pairedEnabled = taskDef.overlays?.paired?.enabled === true;
+        const challengerAgent = taskDef.overlays?.paired?.challenger_agent;
+
+        if (pairedEnabled && challengerAgent) {
+          // Paired escalation: challenger gets one attempt to assess and guide rework
+          const succeeded = await this.runPairedEscalation(taskId, taskDef, challengerAgent, iteration);
+          if (succeeded) return true;
+          // Challenger rejected → fall through to HIL
+        }
+
+        // HIL escalation: human must resolve
+        const hilResolved = await this.runHilEscalation(
+          taskId,
+          `Confidence gate: task '${taskId}' failed to reach acceptable quality after ` +
+          `${regenCount} regeneration attempt(s)${pairedEnabled ? " and paired agent review" : ""}. ` +
+          `Please provide instructions on how to proceed.`,
+          iteration,
+        );
+        if (!hilResolved) return false;
+        // HIL provided instructions — re-arm for one more rework pass (counted normally)
+        continue;
+      }
+
+      // NEEDS_REWORK: normal rework loop
     }
 
     // Exceeded max iterations
@@ -231,12 +292,190 @@ export class Engine {
     return false;
   }
 
+  /**
+   * One-shot paired agent escalation after regeneration retries are exhausted.
+   * The challenger reviews the latest output and either approves (COMPLETED) or
+   * provides structured feedback for HIL escalation.
+   * Returns true if the challenger approved (task can be completed), false otherwise.
+   */
+
+  /**
+   * Resolve the sampling parameters for a regeneration attempt.
+   * Uses the task's configured schedule if present, otherwise the engine default.
+   * `regenCount` is 1-based (first retry = 1).
+   */
+  private resolveRegenSamplingParams(
+    taskDef: TaskDefinition,
+    regenCount: number,
+  ): SamplingParams {
+    const schedule = taskDef.overlays?.confidence?.regen_sampling_schedule
+      ?? DEFAULT_REGEN_SAMPLING_SCHEDULE;
+    // 0-based index; clamp to last entry if retries exceed schedule length
+    const idx = Math.min(regenCount - 1, schedule.length - 1);
+    return schedule[idx]!;
+  }
+
+  private async runPairedEscalation(
+    taskId: string,
+    taskDef: TaskDefinition,
+    challengerAgent: string,
+    iteration: number,
+  ): Promise<boolean> {
+    this.emitter.emit("confidence.paired_escalation", {
+      task_id: taskId,
+      challenger_agent: challengerAgent,
+    });
+
+    const pairedProvider = this.providerChain.find(
+      (p) => p.id === "paired" && p.runtime === "local"
+    ) as (LocalOverlayProvider | undefined);
+    const pairedOverlay = pairedProvider?.inner;
+
+    if (!pairedOverlay || typeof pairedOverlay.postTask !== "function") {
+      this.emitter.emit("confidence.paired_escalation_skipped", {
+        task_id: taskId,
+        reason: "Paired overlay unavailable",
+      });
+      return false;
+    }
+
+    // Build a minimal last result from current task state for the challenger to review
+    const taskState = this.stateManager.getTaskState(taskId);
+    const lastResult = {
+      status: "COMPLETED" as const,
+      outputs: taskState.outputs ?? [],
+      handover_state: this.handoverState,
+    };
+
+    const constitution = this.constitutionResolver.resolveForTask(taskId);
+    const projectPath = this.stateManager.getState().project;
+    const context = assembleContext({
+      constitution: constitution.content,
+      handover_state: this.handoverState,
+      task_definition: taskDef,
+      dispatch_mode: this.adapter.dispatch_mode,
+      project_path: projectPath,
+    });
+
+    const overlayCtx: OverlayContext = {
+      task_id: taskId,
+      workflow_id: this.workflow.config.name,
+      run_id: this.runId,
+      task_definition: taskDef,
+      agent_context: context,
+    };
+
+    const pairedResult = await pairedOverlay.postTask!(overlayCtx, lastResult);
+
+    if (pairedResult.accept) {
+      // Challenger approved — complete the task
+      const taskState2 = this.stateManager.getTaskState(taskId);
+      this.stateManager.transition(taskId, "COMPLETED", {
+        outputs: taskState2.outputs ?? [],
+      });
+      this.emitter.emit("task.completed", {
+        task_id: taskId,
+        duration_ms: 0,
+      });
+      this.emitter.emit("confidence.paired_escalation_approved", {
+        task_id: taskId,
+        challenger_agent: challengerAgent,
+      });
+      return true;
+    }
+
+    // Challenger rejected
+    this.emitter.emit("confidence.paired_escalation_rejected", {
+      task_id: taskId,
+      challenger_agent: challengerAgent,
+      feedback: pairedResult.feedback ?? "",
+    });
+
+    // Re-arm for the HIL escalation that follows
+    if (this.stateManager.getTaskState(taskId).status !== "RUNNING") {
+      this.stateManager.transition(taskId, "NEEDS_REWORK", {
+        rework_feedback: pairedResult.feedback ?? "Paired agent rejected after confidence escalation",
+      });
+      this.emitter.emit("task.rework", { task_id: taskId, iteration, feedback: pairedResult.feedback ?? "" });
+      this.stateManager.transition(taskId, "RUNNING");
+    }
+    return false;
+  }
+
+  /**
+   * HIL escalation: creates a HIL item with the provided reason, persists HIL_PENDING,
+   * awaits human resolution, then re-arms the task for rework with the HIL feedback.
+   * Returns true if HIL resolved (proceed), false if rejected.
+   */
+  private async runHilEscalation(
+    taskId: string,
+    reason: string,
+    iteration: number,
+  ): Promise<boolean> {
+    const hilProvider = this.providerChain.find(
+      (p) => p.id === "hil" && p.runtime === "local"
+    ) as (LocalOverlayProvider | undefined);
+    const hilOverlay = hilProvider?.inner;
+
+    if (!hilOverlay) {
+      this.stateManager.transition(taskId, "FAILED", {
+        error: `HIL escalation required but HIL overlay unavailable. Reason: ${reason}`,
+      });
+      this.emitter.emit("task.failed", { task_id: taskId, error: reason });
+      return false;
+    }
+
+    const hilId = crypto.randomUUID();
+    const hilQueue = (hilOverlay as { queue?: { create: (item: unknown) => void } }).queue;
+    if (hilQueue) {
+      hilQueue.create({
+        id: hilId,
+        task_id: taskId,
+        workflow_id: this.workflow.config.name,
+        status: "PENDING" as const,
+        reason,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    this.emitter.emit("hil.created", { hil_id: hilId, task_id: taskId, reason });
+    this.stateManager.transition(taskId, "HIL_PENDING", { hil_item_id: hilId });
+    this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
+
+    const waitResult = hilOverlay.awaitResolution
+      ? await (hilOverlay as { awaitResolution: (id: string) => Promise<{ proceed: boolean; feedback?: string }> }).awaitResolution(hilId)
+      : { proceed: false, feedback: "HIL overlay unavailable" };
+
+    if (!waitResult.proceed) {
+      this.stateManager.transition(taskId, "FAILED", {
+        error: waitResult.feedback ?? "HIL escalation rejected",
+      });
+      this.emitter.emit("task.failed", { task_id: taskId, error: waitResult.feedback ?? "HIL rejected" });
+      return false;
+    }
+
+    // Re-arm for rework with HIL instructions as the rework feedback.
+    // State machine: HIL_PENDING → RUNNING → NEEDS_REWORK → RUNNING
+    this.stateManager.transition(taskId, "RUNNING");
+    this.stateManager.transition(taskId, "NEEDS_REWORK", {
+      rework_feedback: waitResult.feedback ?? "HIL approved — rework with the instructions provided.",
+    });
+    this.emitter.emit("task.rework", {
+      task_id: taskId,
+      iteration,
+      feedback: waitResult.feedback ?? "HIL escalation resolved",
+    });
+    this.stateManager.transition(taskId, "RUNNING");
+    return true;
+  }
+
   private async runTaskIteration(
     taskId: string,
     taskDef: TaskDefinition,
     agent: AgentConfig,
     iteration: number,
-  ): Promise<"COMPLETED" | "NEEDS_REWORK" | "FAILED"> {
+    regenCount: number = 0,
+  ): Promise<"COMPLETED" | "NEEDS_REWORK" | "REGENERATE" | "FAILED"> {
     const iterStart = Date.now();
 
     // Build idempotency keys
@@ -484,9 +723,16 @@ export class Engine {
     }
 
     // ── Dispatch ────────────────────────────────────────────────────────────
+    // On regeneration retries, apply sampling parameter overrides to nudge
+    // the model away from its previous low-confidence output.
+    const samplingParams = regenCount > 0
+      ? this.resolveRegenSamplingParams(taskDef, regenCount)
+      : undefined;
+
     const result = await this.adapter.dispatchWithRetry(taskId, context, {
       operation_id,
       attempt_id,
+      ...(samplingParams !== undefined && { sampling_params: samplingParams }),
     });
 
     // Record cost
@@ -544,6 +790,7 @@ export class Engine {
       const postDecision = await runPostProviderChain(this.providerChain, overlayCtx, result);
       const postResult = await this.applyPostDecision(taskId, postDecision, iteration);
       if (postResult === "NEEDS_REWORK") return "NEEDS_REWORK";
+      if (postResult === "REGENERATE") return "REGENERATE";
       if (postResult === "FAILED") return "FAILED";
     }
 
@@ -678,11 +925,15 @@ export class Engine {
     taskId: string,
     decision: OverlayDecision,
     iteration: number,
-  ): Promise<"PASS" | "NEEDS_REWORK" | "FAILED"> {
+  ): Promise<"PASS" | "NEEDS_REWORK" | "REGENERATE" | "FAILED"> {
     switch (decision.verdict) {
       case "PASS":
         return "PASS";
-      case "REWORK":
+      case "REWORK": {
+        // Check if the confidence overlay tagged this as a low-confidence regeneration request.
+        const confidenceAction = decision.evidence?.data?.["confidence_action"];
+        const isRegenerate = confidenceAction === "regenerate";
+
         this.stateManager.transition(taskId, "NEEDS_REWORK", {
           rework_feedback: decision.feedback ?? "Post-task overlay requested rework",
           ...(decision.evidence && { overlay_evidence: decision.evidence }),
@@ -693,7 +944,8 @@ export class Engine {
           feedback: decision.feedback ?? "",
         });
         this.stateManager.transition(taskId, "RUNNING");
-        return "NEEDS_REWORK";
+        return isRegenerate ? "REGENERATE" : "NEEDS_REWORK";
+      }
       case "FAIL":
         this.stateManager.transition(taskId, "FAILED", {
           error: decision.feedback ?? "Post-task overlay returned FAIL",
@@ -705,23 +957,90 @@ export class Engine {
         });
         return "FAILED";
       case "HIL":
-        // HIL from post-task chain is an unusual case — treat as NEEDS_REWORK
-        // (post-task HIL is not fully specified; conservative handling)
-        this.stateManager.transition(taskId, "NEEDS_REWORK", {
-          rework_feedback: decision.feedback ?? "Post-task overlay requested HIL review",
-        });
-        this.emitter.emit("task.rework", {
-          task_id: taskId,
-          iteration,
-          feedback: decision.feedback ?? "",
-        });
-        this.stateManager.transition(taskId, "RUNNING");
-        return "NEEDS_REWORK";
+        return await this.applyPostHil(taskId, decision, iteration);
       default: {
         const _exhaustive: never = decision.verdict;
         throw new Error(`Unhandled OverlayVerdict: ${String(_exhaustive)}`);
       }
     }
+  }
+
+  /**
+   * Handle a HIL verdict from the post-task overlay chain.
+   * Creates a HIL item, persists HIL_PENDING state, awaits human resolution,
+   * then re-arms the task for NEEDS_REWORK with the HIL-provided feedback.
+   */
+  private async applyPostHil(
+    taskId: string,
+    decision: OverlayDecision,
+    iteration: number,
+  ): Promise<"NEEDS_REWORK" | "FAILED"> {
+    const hilProvider = this.providerChain.find(
+      (p) => p.id === "hil" && p.runtime === "local"
+    ) as (LocalOverlayProvider | undefined);
+    const hilOverlay = hilProvider?.inner;
+
+    if (!hilOverlay) {
+      // No HIL overlay available — degrade to NEEDS_REWORK with a clear message
+      this.stateManager.transition(taskId, "NEEDS_REWORK", {
+        rework_feedback: `HIL required but HIL overlay unavailable. Original reason: ${decision.feedback ?? "(none)"}`,
+      });
+      this.emitter.emit("task.rework", { task_id: taskId, iteration, feedback: decision.feedback ?? "" });
+      this.stateManager.transition(taskId, "RUNNING");
+      return "NEEDS_REWORK";
+    }
+
+    const hilId = crypto.randomUUID();
+    const hilQueue = (hilOverlay as { queue?: { create: (item: unknown) => void } }).queue;
+    if (hilQueue) {
+      hilQueue.create({
+        id: hilId,
+        task_id: taskId,
+        workflow_id: this.workflow.config.name,
+        status: "PENDING" as const,
+        reason: decision.feedback ?? "Post-task overlay requested human intervention",
+        context: { overlay_evidence: decision.evidence },
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    this.emitter.emit("hil.created", {
+      hil_id: hilId,
+      task_id: taskId,
+      reason: decision.feedback ?? "Post-task HIL request",
+    });
+
+    this.stateManager.transition(taskId, "HIL_PENDING", { hil_item_id: hilId });
+    this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
+
+    const waitResult = hilOverlay.awaitResolution
+      ? await (hilOverlay as { awaitResolution: (id: string) => Promise<{ proceed: boolean; feedback?: string }> }).awaitResolution(hilId)
+      : { proceed: false, feedback: "HIL overlay unavailable" };
+
+    if (!waitResult.proceed) {
+      this.stateManager.transition(taskId, "FAILED", {
+        error: waitResult.feedback ?? "Post-task HIL rejected",
+      });
+      this.emitter.emit("task.failed", {
+        task_id: taskId,
+        error: waitResult.feedback ?? "HIL rejected",
+      });
+      return "FAILED";
+    }
+
+    // HIL resolved — re-arm for rework with the human's feedback as rework input.
+    // State machine: HIL_PENDING → RUNNING → NEEDS_REWORK → RUNNING
+    this.stateManager.transition(taskId, "RUNNING");
+    this.stateManager.transition(taskId, "NEEDS_REWORK", {
+      rework_feedback: waitResult.feedback ?? "HIL approved — please rework with the instructions provided.",
+    });
+    this.emitter.emit("task.rework", {
+      task_id: taskId,
+      iteration,
+      feedback: waitResult.feedback ?? "HIL intervention resolved",
+    });
+    this.stateManager.transition(taskId, "RUNNING");
+    return "NEEDS_REWORK";
   }
 
   /**

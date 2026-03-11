@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "messages": [
+    {
+      "type": "message",
+      "text": "@ai-sdd approve design-l1 looks good",
+      "user": "U01ABCDEFG",
+      "ts": "1710151200.001",
+      "channel": "C01ABC123"
+    },
+    {
+      "type": "message",
+      "text": "@ai-sdd reject design-l1 needs more detail on the state machine",
+      "user": "U02BCDEFGH",
+      "ts": "1710151300.002",
+      "channel": "C01ABC123"
+    },
+    {
+      "type": "message",
+      "text": "This is a regular message that should be ignored",
+      "user": "U03CDEFGHI",
+      "ts": "1710151400.003",
+      "channel": "C01ABC123"
+    },
+    {
+      "type": "message",
+      "text": "@ai-sdd approve implement-async-engine",
+      "user": "U04DEFGHIJ",
+      "ts": "1710151500.004",
+      "channel": "C01ABC123"
+    }
+  ],
+  "has_more": false,
+  "response_metadata": {
+    "next_cursor": ""
+  }
+}

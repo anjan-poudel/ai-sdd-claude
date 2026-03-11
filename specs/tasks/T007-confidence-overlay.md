@@ -1,135 +1,201 @@
-# T007: Confidence Scoring and Confidence Loop Overlay
+# T007: Confidence Overlay
 
 **Phase:** 2 (Overlay Suite)
-**Status:** PENDING
+**Status:** COMPLETED
 **Dependencies:** T004 (core engine), T006 (evidence policy gate)
 
 ---
 
 ## Context
 
-The confidence scoring system computes a decimal score from a set of evaluation metrics. This score is an **advisory signal only** — it can suggest that a task is ready to advance, but it cannot by itself promote an artifact. The Evidence Policy Gate (T006) always has the final say.
+The confidence overlay computes a weighted score from a set of evaluation metrics after each task run. When the score falls below a configurable threshold the engine returns the task for rework. When the score falls below a second, lower `low_confidence_threshold` the engine enters an automatic regeneration + escalation chain to seek higher-quality output rather than accepting poor work.
 
-Two modes:
-- **Composite mode**: `confidence = f([EvalMetric]) → decimal` (weighted aggregation).
-- **Raw mode**: individual metric scores are evaluated directly without aggregation (simpler, for low-overhead tasks).
+The overlay is **disabled by default** (`enabled` must be explicitly set to `true`). The default quality threshold is **0.7**.
 
-Confidence loop overlay: auto-advance advisory when score ≥ threshold. The engine emits the advisory; it is the policy gate that decides promotion.
+---
 
-This overlay is **off by default**.
+## Two-Threshold Model
+
+| Threshold | Config key | Default | Trigger |
+|---|---|---|---|
+| Quality bar | `threshold` | `0.7` | `score < threshold` → `NEEDS_REWORK` |
+| Crisis level | `low_confidence_threshold` | *(disabled)* | `score < low_confidence_threshold` → regeneration chain |
+
+`low_confidence_threshold` is intentionally **disabled until explicitly set**. When set it must be ≤ `threshold`.
+
+---
+
+## Regeneration + Escalation Chain
+
+When `score < low_confidence_threshold` the engine enters the following chain (quality is inviolable — the engine never accepts poor-quality output):
+
+```
+1. Regeneration retries (up to max_regeneration_retries, default 3)
+   Each retry applies a different sampling override (top_p + temperature) to
+   nudge the model away from its previous low-confidence output.
+   If the regenerated output passes confidence → done.
+
+2. If retries exhausted AND paired mode is enabled:
+   Dispatch the paired challenger agent once only (using the existing paired config).
+   If challenger output passes confidence → done.
+
+3. If challenger fails OR paired mode is not enabled:
+   Escalate to HIL. The engine creates a HIL item and waits for human resolution.
+   On HIL resolve: run one NEEDS_REWORK iteration with human notes as feedback.
+   On HIL reject: task transitions to FAILED.
+```
+
+Regeneration retries do **not** consume `max_rework_iterations` budget — they are a sub-loop. The iteration counter is held constant during regen.
+
+---
+
+## Sampling Schedule on Regeneration Retries
+
+Each retry uses progressively higher diversity sampling to explore different outputs:
+
+| Retry | Default `top_p` | Default `temperature` |
+|---|---|---|
+| 1st | 0.9 | 0.2 |
+| 2nd | 0.8 | 0.4 |
+| 3rd | 0.7 | 0.6 |
+
+If the retry count exceeds the schedule length, the last entry is reused. The schedule is fully configurable via `regen_sampling_schedule`. Sampling params are applied in `DispatchOptions.sampling_params` — only direct-mode adapters (OpenAI) honour them; delegation-mode adapters (claude_code) ignore them.
 
 ---
 
 ## Acceptance Criteria
 
 ```gherkin
-Feature: Confidence scoring
+Feature: Confidence overlay
 
-  Scenario: Composite confidence score computation
-    Given three EvalMetrics with values [0.9, 0.8, 0.7] and equal weights
-    When the scorer computes confidence
-    Then the result is 0.8 (weighted mean)
-
-  Scenario: Raw mode bypasses aggregation
-    Given a task configured with raw score mode
-    And individual metric scores [0.85, 0.90]
-    When the scorer runs in raw mode
-    Then individual scores are returned without aggregation
-    And the threshold is checked against each individual metric
-
-  Scenario: Confidence is off by default
-    Given a workflow with no confidence_loop configuration
+  Scenario: Overlay disabled by default
+    Given a workflow with no confidence overlay configuration
     When a task runs
     Then no confidence scoring occurs
-    And no advisory signal is emitted
+    And no confidence.computed event is emitted
 
-  Scenario: Confidence loop overlay fires advisory
-    Given a task with confidence_loop.enabled=true and threshold=0.80
-    When the task produces outputs with computed confidence=0.85
-    Then the overlay emits an advisory signal "confidence threshold met"
-    And the signal is included in the policy gate context
-    But the task does not advance without the policy gate also passing
+  Scenario: Score above threshold — task completes
+    Given a task with confidence.enabled=true and threshold=0.7
+    When the task produces output scoring 0.82
+    Then the overlay returns accept:true
+    And the task transitions to COMPLETED
 
-  Scenario: Confidence below threshold — loop continues
-    Given a task with confidence_loop.enabled=true and threshold=0.80
-    When the computed confidence is 0.72
-    Then no advisory signal is emitted
-    And the loop continues to the next iteration
+  Scenario: Score below threshold — NEEDS_REWORK
+    Given a task with confidence.enabled=true and threshold=0.7
+    When the task produces output scoring 0.60
+    Then the overlay returns accept:false with new_status NEEDS_REWORK
+    And feedback states the confidence score
 
-  Scenario: Confidence loop reaches MAX_ITERATION
-    Given confidence_loop.max_iterations=3 and threshold never met
-    When 3 iterations complete
-    Then the loop exits
-    And if HIL is enabled, escalation occurs
+  Scenario: Per-task threshold override
+    Given a workflow default threshold of 0.7
+    And a specific task with confidence.threshold=0.85
+    When that task produces output scoring 0.80
+    Then the task goes to NEEDS_REWORK (0.80 < 0.85 threshold)
 
-  Scenario: llm_judge requires a separate evaluator agent
-    Given a task using llm_judge metric without evaluator_agent configured
+  Scenario: low_confidence_threshold not set → no regeneration signal
+    Given a task with low_confidence_threshold not configured
+    When the task scores below threshold
+    Then the engine uses ordinary NEEDS_REWORK (no regeneration chain)
+
+  Scenario: Score below low_confidence_threshold → regeneration signal
+    Given a task with threshold=0.7 and low_confidence_threshold=0.5
+    When the task scores 0.40
+    Then the confidence.computed event includes confidence_action:regenerate
+    And the engine enters the regeneration chain
+
+  Scenario: Score between thresholds → ordinary rework
+    Given a task with threshold=0.7 and low_confidence_threshold=0.5
+    When the task scores 0.60
+    Then the confidence.computed event has no confidence_action
+    And the engine uses ordinary NEEDS_REWORK
+
+  Scenario: Regeneration retries with sampling params
+    Given a task with max_regeneration_retries=3 and low_confidence_threshold=0.5
+    When the first dispatch scores 0.40
+    Then retry 1 uses top_p=0.9, temperature=0.2
+    And retry 2 uses top_p=0.8, temperature=0.4
+    And retry 3 uses top_p=0.7, temperature=0.6
+    And a confidence.regenerating event is emitted for each retry
+
+  Scenario: Custom regen_sampling_schedule
+    Given a task with regen_sampling_schedule: [{top_p:0.95, temperature:0.1}]
+    When retries happen
+    Then all retries use top_p=0.95, temperature=0.1 (last entry clamped)
+
+  Scenario: Retries exhausted with paired mode — challenger escalation
+    Given max_regeneration_retries=3, all failing, paired mode enabled
+    When retries are exhausted
+    Then the paired challenger agent is dispatched once
+    And if the challenger output passes → task completes
+
+  Scenario: Retries exhausted without paired mode — HIL escalation
+    Given max_regeneration_retries=3, all failing, paired mode disabled
+    When retries are exhausted
+    Then a HIL item is created with reason "confidence below low_confidence_threshold"
+    And the task transitions to HIL_PENDING
+
+  Scenario: HIL resolve → rework with notes
+    Given task is in HIL_PENDING after confidence escalation
+    When the operator resolves the HIL item with notes
+    Then the task transitions RUNNING → NEEDS_REWORK → RUNNING
+    And the HIL notes are passed as rework feedback
+
+  Scenario: HIL reject → FAILED
+    Given task is in HIL_PENDING after confidence escalation
+    When the operator rejects the HIL item
+    Then the task transitions to FAILED
+
+  Scenario: llm_judge requires evaluator_agent
+    Given a task using llm_judge metric without evaluator_agent set
     When the workflow loads
     Then a validation error is raised: "llm_judge metric requires evaluator_agent"
-    And no tasks execute
 
   Scenario: llm_judge evaluator must differ from task agent
     Given a task assigned to agent "dev" using llm_judge with evaluator_agent "dev"
     When the workflow loads
     Then a validation error is raised: "llm_judge evaluator_agent must differ from task agent"
 
-  Scenario: llm_judge with separate evaluator scores fairly
-    Given a task assigned to agent "dev" with llm_judge evaluator_agent "reviewer"
-    When confidence scoring runs
-    Then the reviewer agent is called with a structured judge prompt
-    And the dev agent's session is not used for scoring
-    And the returned score is recorded in the gate report
-
-  Scenario: Confidence score does not bypass policy gate
-    Given a task with confidence=0.99 (above threshold)
-    And policy_gate.risk_tier=T2
-    When the confidence advisory is emitted
+  Scenario: Confidence does not bypass policy gate
+    Given confidence=0.99 (above threshold) and policy_gate.risk_tier=T2
+    When the confidence overlay passes
     Then the policy gate still requires HIL sign-off
-    And the high confidence score is noted as advisory in the gate report
 ```
 
 ---
 
 ## LLM-as-Judge Independence Policy
 
-When `llm_judge` is used as an evaluation metric, the judging model **must not be the
-same session** as the agent being evaluated. Allowing an agent to score its own output
-creates a bias loop — the agent will consistently report high confidence on its own work.
+When `llm_judge` is used as an evaluation metric the judging model must **not** be the same agent as the agent being evaluated. Self-scoring creates a bias loop.
 
 ```yaml
-# Workflow YAML — configure a separate evaluator
 tasks:
   implement:
     overlays:
-      confidence_loop:
+      confidence:
         enabled: true
         metrics:
           - type: llm_judge
             weight: 0.5
-            evaluator_agent: reviewer   # REQUIRED when type=llm_judge
-                                        # must differ from task's assigned agent
+            evaluator_agent: reviewer   # REQUIRED; must differ from task agent
 ```
 
 Rules:
-- `evaluator_agent` is **required** when metric type is `llm_judge`. Omitting it is a
-  load-time validation error: "llm_judge metric requires evaluator_agent to be set."
-- `evaluator_agent` must not equal the task's assigned `agent` field.
-  Violation: load-time error: "llm_judge evaluator_agent must differ from task agent."
-- The evaluator agent is invoked with a structured judge prompt: "Score the following
-  output against these criteria on a 0.0–1.0 scale. Return only a JSON score object."
-- If no separate reviewer/evaluator agent is available, use `type: checklist_completion`
-  or `type: test_coverage` instead — these are objective metrics requiring no judge.
+- `evaluator_agent` is **required** when metric type is `llm_judge`. Omitting it is a load-time error.
+- `evaluator_agent` must not equal the task's assigned `agent` field. Violation is a load-time error.
+- If the auto-resolved `evaluator_agent` equals the task agent at runtime (e.g. traceability overlay), the overlay skips silently.
+
+---
 
 ## EvalMetric Types
 
-| Type | Description | Example |
-|---|---|---|
-| `test_coverage` | Percentage of code covered by tests | 0.87 |
-| `lint_score` | Linting pass rate (0–1) | 1.0 (clean) |
-| `security_score` | Security scan clean rate | 0.95 |
-| `checklist_completion` | PR/review checklist items completed | 0.80 |
-| `llm_judge` | LLM-as-a-judge score for output quality | 0.78 |
-| `requirement_coverage` | Requirements covered by outputs | 0.92 |
+| Type | Description |
+|---|---|
+| `output_completeness` | Fraction of expected output sections/fields present |
+| `contract_compliance` | Whether declared artifact contract is satisfied |
+| `lint_pass` | Boolean lint clean (1.0 or 0.0) |
+| `llm_judge` | Separate evaluator agent scores output quality (0.0–1.0) |
+
+Score is the weighted mean of all metric scores. Default weight = 1.0 / metric count when not specified.
 
 ---
 
@@ -137,69 +203,69 @@ Rules:
 
 ```yaml
 tasks:
-  design-l1:
-    agent: architect
+  implement:
+    agent: dev
     overlays:
-      confidence_loop:
+      confidence:
         enabled: true
-        mode: composite            # composite | raw
-        threshold: 0.80
-        max_iterations: 5
+        threshold: 0.80             # quality bar (default 0.7)
+        low_confidence_threshold: 0.50   # crisis level — enables regen chain
+        max_regeneration_retries: 3      # regen attempts before escalation (default 3)
+        regen_sampling_schedule:         # per-retry sampling overrides
+          - { top_p: 0.9, temperature: 0.2 }
+          - { top_p: 0.8, temperature: 0.4 }
+          - { top_p: 0.7, temperature: 0.6 }
         metrics:
-          - type: llm_judge
-            weight: 0.5
-          - type: checklist_completion
+          - type: output_completeness
+            weight: 0.4
+          - type: contract_compliance
             weight: 0.3
-          - type: requirement_coverage
-            weight: 0.2
-        exit_conditions:
-          - "confidence_score >= 0.80"
-          - "pair.challenger_approved == true"  # if paired_workflow also enabled
+          - type: llm_judge
+            weight: 0.3
+            evaluator_agent: reviewer
+      paired:
+        enabled: true               # paired.challenger_agent is used for escalation
+        driver_agent: dev
+        challenger_agent: reviewer
+```
+
+Minimal config (threshold-only, no regen chain):
+
+```yaml
+overlays:
+  confidence:
+    enabled: true
+    threshold: 0.85
 ```
 
 ---
 
-## Scorer Interface
+## Observability Events
 
-```python
-def compute_confidence(metrics: list[EvalMetric]) -> float:
-    """Weighted mean of all metric scores. Returns decimal in [0.0, 1.0]."""
-    ...
+| Event | Emitted when |
+|---|---|
+| `confidence.computed` | After each confidence score computation |
+| `confidence.regenerating` | At the start of each regeneration retry |
 
-def compute_raw(metrics: list[EvalMetric]) -> list[float]:
-    """Return raw individual metric scores without aggregation."""
-    ...
-```
+`confidence.computed` payload includes: `confidence_score`, `eval_result`, `below_low_threshold` (bool), `low_confidence_threshold` (when set), `confidence_action: "regenerate"` (when below low threshold).
 
----
-
-## Implementation Notes
-
-- The confidence score is computed post-task by the scorer.
-- The score and metric breakdown are included in the gate report (T006).
-- Overlays communicate via the shared `TaskContext` object — confidence writes its score there.
-- LLM-judge metric: the **evaluator agent** (never the task agent) is invoked with a structured judge prompt. The task agent's session is not used for scoring — see LLM-as-Judge Independence Policy above.
+`confidence.regenerating` payload includes: `task_id`, `regen_count`, `sampling_params`, `score`.
 
 ---
 
-## Files to Create
+## Implementation Files
 
-- `eval/metrics.py`
-- `eval/scorer.py`
-- `overlays/confidence/confidence_overlay.py`
-- `tests/test_scorer.py`
-- `tests/test_confidence_overlay.py`
+- `src/overlays/confidence/confidence-overlay.ts` — `ConfidenceOverlay` class
+- `src/core/engine.ts` — regeneration loop, escalation chain, `resolveRegenSamplingParams()`
+- `src/adapters/base-adapter.ts` — `SamplingParams` interface, `DispatchOptions.sampling_params`
+- `src/adapters/openai-adapter.ts` — passes `sampling_params` to `chat.completions.create`
+- `tests/overlays/confidence-overlay.test.ts` — unit tests
+- `tests/engine.test.ts` — integration tests for regeneration + escalation + sampling
 
 ---
 
-## Test Strategy
+## Rollback / Fallback
 
-- Unit tests: weighted mean computation, raw mode, edge cases (empty metrics, all-zero).
-- Unit tests: advisory signal emitted only when threshold met.
-- Unit tests: confidence does not bypass policy gate (integration assertion).
-- Integration test: confidence loop with max_iterations; HIL escalation.
-
-## Rollback/Fallback
-
-- If confidence computation fails, log warning and treat score as 0.0 (conservative).
-- Disable overlay via config; standard execution path continues unaffected.
+- If confidence computation fails, log a warning and treat score as `0.0` (conservative — triggers rework).
+- Disable the overlay via `enabled: false`; standard execution path continues unaffected.
+- `low_confidence_threshold` omitted → regeneration chain never fires; overlay behaves as ordinary quality gate.

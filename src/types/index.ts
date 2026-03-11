@@ -12,17 +12,33 @@ export type TaskStatus =
   | "NEEDS_REWORK"
   | "HIL_PENDING"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  // ── Async collaboration states (only reachable when task.mode === "async") ──
+  | "AWAITING_APPROVAL"
+  | "APPROVED"
+  | "DOING";
 
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  PENDING:      ["RUNNING", "CANCELLED"],
-  RUNNING:      ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED", "CANCELLED"],
-  COMPLETED:    [],
-  NEEDS_REWORK: ["RUNNING", "FAILED", "CANCELLED"],
-  HIL_PENDING:  ["RUNNING", "FAILED", "CANCELLED"],
-  FAILED:       [],
-  CANCELLED:    [],   // terminal — no outgoing transitions
+  PENDING:           ["RUNNING", "CANCELLED"],
+  RUNNING:           ["COMPLETED", "NEEDS_REWORK", "HIL_PENDING", "FAILED", "CANCELLED", "AWAITING_APPROVAL"],
+  COMPLETED:         [],
+  NEEDS_REWORK:      ["RUNNING", "FAILED", "CANCELLED"],
+  HIL_PENDING:       ["RUNNING", "FAILED", "CANCELLED"],
+  FAILED:            [],
+  CANCELLED:         [],   // terminal — no outgoing transitions
+  // ── Async collaboration transitions ──────────────────────────────────────
+  // Only valid when task.mode === "async"; StateManager enforces the mode guard.
+  AWAITING_APPROVAL: ["APPROVED", "DOING", "FAILED", "CANCELLED"],
+  APPROVED:          ["DOING"],
+  DOING:             ["AWAITING_APPROVAL", "COMPLETED", "FAILED", "CANCELLED"],
 };
+
+/** Async-only task statuses — transition to these requires mode === "async". */
+export const ASYNC_ONLY_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
+  "AWAITING_APPROVAL",
+  "APPROVED",
+  "DOING",
+]);
 
 // ─── HIL Queue States ────────────────────────────────────────────────────────
 
@@ -91,6 +107,28 @@ export interface TaskOverlays {
   confidence?: {
     enabled?: boolean;
     threshold?: number;
+    /**
+     * Scores below this level trigger the regeneration+escalation chain instead of
+     * ordinary NEEDS_REWORK. Disabled (undefined) by default — must be set explicitly.
+     * Typical value: 0.5. Must be ≤ threshold when both are set.
+     */
+    low_confidence_threshold?: number;
+    /**
+     * How many regeneration retries to attempt before escalating to the paired agent
+     * (if configured) or HIL. Only relevant when low_confidence_threshold is set.
+     * Default: 3.
+     */
+    max_regeneration_retries?: number;
+    /**
+     * Per-attempt sampling parameter overrides applied during regeneration retries.
+     * Index 0 = first retry, index 1 = second retry, etc.
+     * If the retry count exceeds the schedule length, the last entry is reused.
+     * Default schedule: [{top_p:0.9,temperature:0.2},{top_p:0.8,temperature:0.4},{top_p:0.7,temperature:0.6}]
+     */
+    regen_sampling_schedule?: Array<{
+      temperature?: number;
+      top_p?: number;
+    }>;
     metrics?: Array<{
       type: string;
       weight?: number;
@@ -182,6 +220,8 @@ export interface TaskState {
   /** Persisted after successful completion for status --metrics. */
   tokens_used?: TokenUsage;
   cost_usd?: number;
+  /** Async collaboration state — only present when task.mode === "async". */
+  async_state?: import("../collaboration/types.ts").AsyncTaskState;
 }
 
 export interface WorkflowState {

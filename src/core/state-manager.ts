@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import type { TaskState, TaskStatus, WorkflowState } from "../types/index.ts";
-import { VALID_TRANSITIONS } from "../types/index.ts";
+import { VALID_TRANSITIONS, ASYNC_ONLY_STATUSES } from "../types/index.ts";
 
 export class StateError extends Error {
   constructor(message: string) {
@@ -82,11 +82,28 @@ export class StateManager {
   /**
    * Transition a task to a new status.
    * Throws StateError on invalid transition.
+   *
+   * @param taskMode - Optional task execution mode ("sync" | "async").
+   *   Async-only states (AWAITING_APPROVAL, APPROVED, DOING) require mode === "async".
+   *   Sync tasks attempting to enter async states will receive a StateError.
    */
-  transition(taskId: string, newStatus: TaskStatus, updates?: Partial<TaskState>): void {
+  transition(
+    taskId: string,
+    newStatus: TaskStatus,
+    updates?: Partial<TaskState>,
+    taskMode?: "sync" | "async",
+  ): void {
     const current = this.state.tasks[taskId];
     if (!current) {
       throw new StateError(`Task '${taskId}' not found in state`);
+    }
+
+    // Mode guard: async-only states are forbidden for sync tasks.
+    if (ASYNC_ONLY_STATUSES.has(newStatus) && taskMode !== "async") {
+      throw new StateError(
+        `Task '${taskId}' cannot transition to ${newStatus}: ` +
+        `async states require task mode "async" but task mode is "${taskMode ?? "sync"}".`,
+      );
     }
 
     const allowed = VALID_TRANSITIONS[current.status];
@@ -106,6 +123,20 @@ export class StateManager {
       completed_at: (newStatus === "COMPLETED" || newStatus === "FAILED" || newStatus === "CANCELLED") ? now : current.completed_at,
     };
     this.state.updated_at = now;
+    this.persist();
+  }
+
+  /**
+   * Update arbitrary fields on a task without changing its status.
+   * Used by collaboration components (e.g. ApprovalManager) to persist async_state.
+   */
+  updateTaskFields(taskId: string, fields: Partial<TaskState>): void {
+    const current = this.state.tasks[taskId];
+    if (!current) throw new StateError(`Task '${taskId}' not found`);
+    // Prevent accidental status changes via this method.
+    const { status: _status, ...safeFields } = fields;
+    this.state.tasks[taskId] = { ...current, ...safeFields };
+    this.state.updated_at = new Date().toISOString();
     this.persist();
   }
 

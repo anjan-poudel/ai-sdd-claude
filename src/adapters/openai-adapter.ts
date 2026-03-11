@@ -112,6 +112,9 @@ export class OpenAIAdapter extends RuntimeAdapter {
           },
         ],
         user: options.operation_id, // idempotency hint
+        // Apply sampling overrides when provided (e.g. regeneration retries)
+        ...(options.sampling_params?.temperature !== undefined && { temperature: options.sampling_params.temperature }),
+        ...(options.sampling_params?.top_p !== undefined && { top_p: options.sampling_params.top_p }),
       }) as {
         choices: Array<{ message: { content: string | null } }>;
         usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };

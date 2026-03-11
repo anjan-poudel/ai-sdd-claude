@@ -1,0 +1,17 @@
+{
+  "id": 2001,
+  "number": 42,
+  "node_id": "I_kwDOABCDEF5Fg1234",
+  "title": "Feature: Async engine support",
+  "body": "Implements the async task lifecycle for the collaboration feature",
+  "state": "open",
+  "labels": [
+    { "id": 101, "name": "epic", "color": "0075ca" }
+  ],
+  "assignee": null,
+  "assignees": [],
+  "html_url": "https://github.com/my-org/my-repo/issues/42",
+  "url": "https://api.github.com/repos/my-org/my-repo/issues/42",
+  "created_at": "2026-03-11T10:00:00Z",
+  "updated_at": "2026-03-11T10:00:00Z"
+}

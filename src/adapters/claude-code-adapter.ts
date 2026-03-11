@@ -50,9 +50,12 @@ export class ClaudeCodeAdapter extends RuntimeAdapter {
     args.push(taskBrief);
 
     try {
+      const spawnEnv = { ...process.env };
+      delete spawnEnv["CLAUDECODE"];
       const proc = Bun.spawn(["claude", ...args], {
         stdout: "pipe",
         stderr: "pipe",
+        env: spawnEnv,
       });
 
       // Race between process completion and timeout

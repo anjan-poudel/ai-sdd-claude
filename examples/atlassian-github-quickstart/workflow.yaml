@@ -1,0 +1,92 @@
+# Workflow: Atlassian + GitHub Quickstart
+#
+# A full SDD run that uses:
+#   • Slack   — HIL approval prompts + task completion pings
+#   • Jira    — one issue per task (synced automatically)
+#   • Confluence — design docs + review reports published as pages
+#   • GitHub  — PRs opened for every implement task, reviewed by the reviewer agent
+#
+# HOW APPROVALS WORK
+# ------------------
+# When a task hits a HIL gate the engine posts a Slack message like:
+#
+#   *[ai-sdd] HIL Required: define-requirements*
+#   Task: `define-requirements`
+#   Artifact: https://yourorg.atlassian.net/wiki/...
+#   To approve: `@ai-sdd approve define-requirements`
+#   To reject:  `@ai-sdd reject define-requirements <reason>`
+#
+# Reply in the Slack channel and the workflow resumes automatically.
+
+version: "1"
+name: atlassian-github-quickstart
+description: "Full SDD pipeline wired to Slack, Confluence, Jira, and GitHub"
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T1 }
+    hil: { enabled: true }
+  max_rework_iterations: 3
+
+tasks:
+
+  # ── Phase 1: Requirements ──────────────────────────────────────────────────
+  define-requirements:
+    use: define-requirements
+    depends_on: []
+    description: |
+      Define functional and non-functional requirements for the project.
+      Publish the output as a Confluence page under the configured space.
+      A Slack message will be sent to the notify channel for HIL sign-off.
+
+  # ── Phase 2: Architecture ──────────────────────────────────────────────────
+  design-l1:
+    use: design-architecture
+    depends_on: [define-requirements]
+    description: |
+      Produce an L1 architecture document covering system context, components,
+      and key design decisions. Publish to Confluence.
+
+  review-l1:
+    use: review-l1
+    depends_on: [design-l1]
+
+  design-l2:
+    use: design-component
+    depends_on: [review-l1]
+    description: |
+      Produce detailed L2 component designs for each bounded context.
+      Publish to Confluence.
+
+  review-l2:
+    use: review-l2
+    depends_on: [design-l2]
+
+  # ── Phase 3: Task planning ─────────────────────────────────────────────────
+  plan-tasks:
+    use: plan-tasks
+    depends_on: [review-l2]
+    description: |
+      Break down the L2 design into an L3 task list.
+      Each task will be synced to Jira as an issue under ${JIRA_PROJECT_KEY}.
+
+  # ── Phase 4: Implementation ────────────────────────────────────────────────
+  implement:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: |
+      Implement the planned tasks.
+      A GitHub PR is opened automatically; the review agent will review it.
+
+  # ── Phase 5: Review & sign-off ─────────────────────────────────────────────
+  review-implementation:
+    use: review-implementation
+    depends_on: [implement]
+    description: |
+      Review the implementation against requirements and design.
+      Publish the review report to Confluence.
+      A Slack approval prompt is sent for final HIL sign-off.
+
+  final-sign-off:
+    use: final-sign-off
+    depends_on: [review-implementation]

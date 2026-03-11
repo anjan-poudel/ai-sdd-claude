@@ -85,8 +85,14 @@ Rule: adapters send `operation_id` to the provider. Both IDs are logged in every
 | `T1` | Acceptance + verification (tests/lint/security) | No |
 | `T2` | Acceptance + verification + operational readiness | **Always** |
 
-Confidence score is **advisory only** at all tiers. It is included in the gate report but
-never changes the pass/fail verdict.
+**Confidence overlay** operates as a post-task quality gate, not advisory:
+
+- `score < threshold` → `NEEDS_REWORK` (default threshold: `0.7`).
+- `score < low_confidence_threshold` (when set) → regeneration + escalation chain:
+  regen retries (with per-attempt sampling nudges) → paired challenger (once) → HIL.
+- `low_confidence_threshold` is disabled until explicitly set; must be ≤ `threshold`.
+- The confidence overlay does **not** replace the Evidence Policy Gate — both may run.
+  High confidence does not waive a T2 gate's required HIL sign-off.
 
 ---
 

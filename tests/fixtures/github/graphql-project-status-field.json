@@ -1,0 +1,19 @@
+{
+  "data": {
+    "repository": {
+      "projectV2": {
+        "id": "PVT_kwDOABCDEF5Fg9012",
+        "field": {
+          "id": "PVTF_lADOABCDEF5Fg9012",
+          "name": "Status",
+          "options": [
+            { "id": "opt_todo", "name": "Todo" },
+            { "id": "opt_in_progress", "name": "In Progress" },
+            { "id": "opt_in_review", "name": "In Review" },
+            { "id": "opt_done", "name": "Done" }
+          ]
+        }
+      }
+    }
+  }
+}

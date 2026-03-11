@@ -39,13 +39,20 @@ export class ConfidenceOverlay implements BaseOverlay {
     const allMetrics = [...builtMetrics, ...llmJudgeScores];
     const evalResult = computeConfidence(ctx.task_id, allMetrics);
 
-    const belowThreshold = evalResult.confidence_score < this.threshold;
+    // Per-task threshold overrides the overlay-level default when explicitly configured.
+    const effectiveThreshold = ctx.task_definition.overlays?.confidence?.threshold ?? this.threshold;
+    const belowThreshold = evalResult.confidence_score < effectiveThreshold;
+    const lowConfThreshold = ctx.task_definition.overlays?.confidence?.low_confidence_threshold;
+    const belowLowThreshold =
+      lowConfThreshold !== undefined && evalResult.confidence_score < lowConfThreshold;
 
     this.emitter.emit("confidence.computed", {
       task_id: ctx.task_id,
       score: evalResult.confidence_score,
-      threshold: this.threshold,
+      threshold: effectiveThreshold,
       below_threshold: belowThreshold,
+      below_low_threshold: belowLowThreshold,
+      ...(lowConfThreshold !== undefined && { low_confidence_threshold: lowConfThreshold }),
       metrics: evalResult.metrics,
     });
 
@@ -55,8 +62,14 @@ export class ConfidenceOverlay implements BaseOverlay {
         new_status: "NEEDS_REWORK",
         feedback:
           `Confidence score ${evalResult.confidence_score.toFixed(2)} is below threshold ` +
-          `${this.threshold.toFixed(2)}. Improve output completeness and quality.`,
-        data: { confidence_score: evalResult.confidence_score, eval_result: evalResult },
+          `${effectiveThreshold.toFixed(2)}. Improve output completeness and quality.`,
+        data: {
+          confidence_score: evalResult.confidence_score,
+          eval_result: evalResult,
+          // Signal to the engine to use the regeneration+escalation chain instead of
+          // ordinary NEEDS_REWORK when the score is critically low.
+          ...(belowLowThreshold && { confidence_action: "regenerate" }),
+        },
       };
     }
 

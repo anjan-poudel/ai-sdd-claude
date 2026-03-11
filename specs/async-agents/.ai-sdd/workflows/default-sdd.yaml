@@ -1,0 +1,96 @@
+version: "1"
+name: async-agents-sdd
+description: "Async/Hybrid Workflow Collaboration — MVP 1 (Atlassian) + MVP 2 (GitHub)"
+
+defaults:
+  overlays:
+    policy_gate: { risk_tier: T0 }
+  max_rework_iterations: 3
+
+tasks:
+  # ── Requirements ─────────────────────────────────────────
+  define-requirements:
+    use: define-requirements
+
+  # ── Architecture ─────────────────────────────────────────
+  design-l1:
+    use: design-architecture
+    depends_on: [define-requirements]
+
+  review-l1:
+    use: review-l1
+    depends_on: [design-l1]
+
+  # ── Component Design ─────────────────────────────────────
+  design-l2:
+    use: design-component
+    depends_on: [review-l1]
+
+  review-l2:
+    use: review-l2
+    depends_on: [design-l2]
+
+  # ── Task Planning ────────────────────────────────────────
+  plan-tasks:
+    use: plan-tasks
+    depends_on: [review-l2]
+
+  # ── MVP 1: Atlassian Stack Implementation ────────────────
+  implement-async-engine:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: "Implement async/sync task modes, state machine (AWAITING → APPROVED → DOING → DONE), hybrid workflow support in the engine core"
+
+  implement-slack-adapter:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: "Implement Slack adapter — channel posting, message listening, approval signal parsing, stakeholder notification"
+
+  implement-confluence-adapter:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: "Implement Confluence adapter — page creation under configured space/folder, inline & standard comment support, review feedback cycle"
+
+  implement-jira-adapter:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: "Implement Jira adapter — epic/sub-task creation, Agile Kanban transitions, swimlane state mapping"
+
+  implement-bitbucket-adapter:
+    use: standard-implement
+    depends_on: [plan-tasks]
+    description: "Implement Bitbucket adapter — PR creation, review feedback, merge flow, pipeline trigger integration"
+
+  implement-mvp1-integration:
+    use: standard-implement
+    depends_on: [implement-async-engine, implement-slack-adapter, implement-confluence-adapter, implement-jira-adapter, implement-bitbucket-adapter]
+    description: "Wire MVP 1 adapters together — end-to-end async workflow with Slack coordination, Confluence docs, Jira tracking, Bitbucket PRs"
+
+  review-mvp1:
+    use: review-implementation
+    depends_on: [implement-mvp1-integration]
+
+  # ── MVP 2: GitHub Stack Implementation ───────────────────
+  mvp2-implement-github-issues-adapter:
+    use: standard-implement
+    depends_on: [review-mvp1]
+    description: "MVP2: Implement GitHub Issues adapter — create issues with labels mimicking Jira epics/sub-tasks, Kanban-style transitions via GitHub Project columns"
+
+  mvp2-implement-github-pr-adapter:
+    use: standard-implement
+    depends_on: [review-mvp1]
+    description: "MVP2: Implement GitHub PR adapter — PR creation, code review feedback, merge flow, GitHub Actions trigger"
+
+  mvp2-implement-github-project-adapter:
+    use: standard-implement
+    depends_on: [review-mvp1]
+    description: "MVP2: Implement GitHub Project adapter — project board creation, column mapping to workflow states, issue tracking"
+
+  mvp2-implement-integration:
+    use: standard-implement
+    depends_on: [mvp2-implement-github-issues-adapter, mvp2-implement-github-pr-adapter, mvp2-implement-github-project-adapter]
+    description: "MVP2: Wire GitHub adapters together — end-to-end async workflow with Slack + Confluence + GitHub Issues/Projects/PRs"
+
+  mvp2-review:
+    use: review-implementation
+    depends_on: [mvp2-implement-integration]

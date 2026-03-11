@@ -1,0 +1,30 @@
+{
+  "id": 42,
+  "title": "Feature: Async engine support",
+  "description": "Implements async task lifecycle",
+  "state": "OPEN",
+  "source": {
+    "branch": { "name": "feature/async-engine" },
+    "repository": {
+      "slug": "my-repo",
+      "full_name": "myworkspace/my-repo"
+    }
+  },
+  "destination": {
+    "branch": { "name": "master" },
+    "repository": {
+      "slug": "my-repo",
+      "full_name": "myworkspace/my-repo"
+    }
+  },
+  "links": {
+    "html": { "href": "https://bitbucket.org/myworkspace/my-repo/pull-requests/42" },
+    "self": [{ "href": "https://api.bitbucket.org/2.0/repositories/myworkspace/my-repo/pullrequests/42" }]
+  },
+  "created_on": "2026-03-11T10:00:00.000000+00:00",
+  "updated_on": "2026-03-11T10:00:00.000000+00:00",
+  "author": {
+    "display_name": "Dev User",
+    "account_id": "5b10a2844c20165700ede21g"
+  }
+}

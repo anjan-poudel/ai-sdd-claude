@@ -1,0 +1,24 @@
+{
+  "id": 3001,
+  "number": 99,
+  "node_id": "PR_kwDOABCDEF5Fg5678",
+  "title": "Feature: Async engine support",
+  "body": "Implements async task lifecycle management for the collaboration framework",
+  "state": "open",
+  "merged": false,
+  "draft": false,
+  "head": {
+    "label": "my-org:feature/async-engine",
+    "ref": "feature/async-engine",
+    "sha": "abc1234567890abcdef1234567890abcdef12345"
+  },
+  "base": {
+    "label": "my-org:main",
+    "ref": "main",
+    "sha": "def1234567890abcdef1234567890abcdef12345"
+  },
+  "html_url": "https://github.com/my-org/my-repo/pull/99",
+  "url": "https://api.github.com/repos/my-org/my-repo/pulls/99",
+  "created_at": "2026-03-11T10:00:00Z",
+  "updated_at": "2026-03-11T10:00:00Z"
+}

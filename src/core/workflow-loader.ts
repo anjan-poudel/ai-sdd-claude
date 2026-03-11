@@ -42,9 +42,17 @@ const TaskOverlayConfidenceMetricSchema = z.object({
   evaluator_agent: z.string().optional(),
 });
 
+const RegenSamplingStepSchema = z.object({
+  temperature: z.number().min(0).max(1).optional(),
+  top_p: z.number().min(0).max(1).optional(),
+});
+
 const TaskOverlayConfidenceSchema = z.object({
   enabled: z.boolean().optional(),
   threshold: z.number().min(0).max(1).optional(),
+  low_confidence_threshold: z.number().min(0).max(1).optional(),
+  max_regeneration_retries: z.number().int().positive().optional(),
+  regen_sampling_schedule: z.array(RegenSamplingStepSchema).optional(),
   metrics: z.array(TaskOverlayConfidenceMetricSchema).optional(),
 });
 
@@ -140,7 +148,7 @@ function normalizeTaskOutputs(
 type LooseTaskOverlays = {
   hil?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
   policy_gate?: { enabled?: boolean | undefined; risk_tier?: "T0" | "T1" | "T2" | undefined } | undefined;
-  confidence?: { enabled?: boolean | undefined; threshold?: number | undefined; metrics?: Array<{ type: string; weight?: number; evaluator_agent?: string }> | undefined } | undefined;
+  confidence?: { enabled?: boolean | undefined; threshold?: number | undefined; low_confidence_threshold?: number | undefined; max_regeneration_retries?: number | undefined; regen_sampling_schedule?: Array<{ temperature?: number; top_p?: number }> | undefined; metrics?: Array<{ type: string; weight?: number; evaluator_agent?: string }> | undefined } | undefined;
   paired?: { enabled?: boolean | undefined; driver_agent?: string | undefined; challenger_agent?: string | undefined; role_switch?: "session" | "subtask" | "checkpoint" | undefined; max_iterations?: number | undefined } | undefined;
   review?: { enabled?: boolean | undefined; coder_agent?: string | undefined; reviewer_agent?: string | undefined; max_iterations?: number | undefined } | undefined;
   traceability?: { enabled?: boolean | undefined; lock_file?: string | undefined; evaluator_agent?: string | undefined } | undefined;
@@ -168,6 +176,9 @@ function normalizeTaskOverlays(
     normalized.confidence = {
       ...(overlays.confidence.enabled !== undefined && { enabled: overlays.confidence.enabled }),
       ...(overlays.confidence.threshold !== undefined && { threshold: overlays.confidence.threshold }),
+      ...(overlays.confidence.low_confidence_threshold !== undefined && { low_confidence_threshold: overlays.confidence.low_confidence_threshold }),
+      ...(overlays.confidence.max_regeneration_retries !== undefined && { max_regeneration_retries: overlays.confidence.max_regeneration_retries }),
+      ...(overlays.confidence.regen_sampling_schedule !== undefined && { regen_sampling_schedule: overlays.confidence.regen_sampling_schedule }),
       ...(overlays.confidence.metrics !== undefined && { metrics: overlays.confidence.metrics }),
     };
   }
