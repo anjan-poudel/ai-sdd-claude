@@ -18,11 +18,13 @@ const SCHEMA_VERSION = "1" as const;
 const STATE_FILE_NAME = "workflow-state.json";
 
 export class StateManager {
-  private statePath: string;
+  private _statePath: string;
+  /** Path to the persisted state file. Useful for direct-patch recovery operations. */
+  get statePath(): string { return this._statePath; }
   private state: WorkflowState;
 
   constructor(stateDir: string, workflowName: string, projectPath: string) {
-    this.statePath = join(stateDir, STATE_FILE_NAME);
+    this._statePath = join(stateDir, STATE_FILE_NAME);
     this.state = {
       schema_version: SCHEMA_VERSION,
       workflow: workflowName,
@@ -37,8 +39,8 @@ export class StateManager {
    * Load state from disk, or initialize fresh state.
    */
   load(): void {
-    if (existsSync(this.statePath)) {
-      const raw = readFileSync(this.statePath, "utf-8");
+    if (existsSync(this._statePath)) {
+      const raw = readFileSync(this._statePath, "utf-8");
       const loaded = JSON.parse(raw) as WorkflowState;
       if (loaded.schema_version !== SCHEMA_VERSION) {
         throw new StateError(
@@ -183,12 +185,12 @@ export class StateManager {
    * Atomically persist state to disk (tmp + rename).
    */
   private persist(): void {
-    const dir = dirname(this.statePath);
+    const dir = dirname(this._statePath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    const tmpPath = `${this.statePath}.tmp`;
+    const tmpPath = `${this._statePath}.tmp`;
     writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), "utf-8");
-    renameSync(tmpPath, this.statePath);
+    renameSync(tmpPath, this._statePath);
   }
 }

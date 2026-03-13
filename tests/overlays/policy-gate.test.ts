@@ -61,6 +61,22 @@ describe("PolicyGateOverlay: T0", () => {
     expect(result.accept).toBe(false);
     expect(result.feedback).toContain("No outputs produced");
   });
+
+  it("task-level enabled:false skips the gate", async () => {
+    const ctx = makeContext("T2");
+    const result = await overlay.postTask(
+      {
+        ...ctx,
+        task_definition: {
+          ...ctx.task_definition,
+          overlays: { policy_gate: { enabled: false, risk_tier: "T2" } },
+        },
+      },
+      makeResult({ outputs: [], handover_state: {} }),
+    );
+    expect(result.accept).toBe(true);
+    expect(result.new_status).toBe("COMPLETED");
+  });
 });
 
 describe("PolicyGateOverlay: T1 evidence enforcement", () => {

@@ -5,7 +5,7 @@
  * 1. HIL is always first in the chain when enabled
  * 2. Evidence gate is always post-task (never pre-task)
  * 3. T2 risk tier always triggers HIL
- * 4. Confidence is always advisory (never blocks)
+ * 4. Confidence runs after the other local quality overlays
  * 5. Paired and Review are mutually exclusive (cannot both be enabled)
  */
 

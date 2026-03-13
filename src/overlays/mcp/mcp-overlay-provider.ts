@@ -252,7 +252,11 @@ export class McpOverlayProvider implements OverlayProvider {
         original_verdict: decision.verdict,
         reason: "non-blocking overlay — verdict recorded as evidence only",
       });
-      return { verdict: "PASS", evidence: decision.evidence, feedback: decision.feedback };
+      return {
+        verdict: "PASS",
+        ...(decision.evidence !== undefined && { evidence: decision.evidence }),
+        ...(decision.feedback !== undefined && { feedback: decision.feedback }),
+      };
     }
 
     return decision;

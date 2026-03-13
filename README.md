@@ -216,7 +216,7 @@ ai-sdd migrate --from 1 --to 2
 ### Overlay Chain (locked order)
 
 ```
-HIL (default ON) → Evidence Gate → Agentic Review → Paired Workflow → Confidence Loop → Agent Execution
+HIL (default ON) → optional Remote Overlays → Evidence Gate → Agentic Review / Paired Workflow → Traceability → Confidence Loop → Agent Execution
 ```
 
 ### Task State Machine

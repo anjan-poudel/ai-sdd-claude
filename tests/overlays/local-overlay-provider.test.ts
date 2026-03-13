@@ -169,6 +169,23 @@ describe("LocalOverlayProvider: post-task mapping", () => {
     expect(decision.feedback).toBe("Critical failure.");
   });
 
+  it("7b. accept: false with data.hil_suggested=true → verdict HIL", async () => {
+    const overlay = makeMockOverlay({
+      postResult: {
+        accept: false,
+        new_status: "NEEDS_REWORK",
+        feedback: "Human review required.",
+        data: { hil_suggested: true },
+      },
+    });
+    const provider = new LocalOverlayProvider(overlay);
+    const ctx = makeOverlayContext();
+    const decision = await provider.invokePost!(ctx, makeTaskResult());
+    expect(decision.verdict).toBe("HIL");
+    expect(decision.feedback).toBe("Human review required.");
+    expect(decision.evidence?.data?.["hil_suggested"]).toBe(true);
+  });
+
   it("8. accept: false, new_status: COMPLETED → throws TypeError naming overlay", async () => {
     const overlay = makeMockOverlay({
       name: "bad-overlay",

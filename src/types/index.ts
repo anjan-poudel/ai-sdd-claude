@@ -339,6 +339,19 @@ export interface ProjectConfig {
     /** When true, a missing standards file is a hard error. Default false. */
     strict?: boolean;
   };
+  collaboration?: {
+    enabled?: boolean;
+    adapters?: {
+      notification?: "slack" | "mock";
+      document?: "confluence" | "mock";
+      task_tracking?: "jira" | "github" | "mock";
+      code_review?: "bitbucket" | "github" | "mock";
+    };
+    slack?: { notify_channel?: string };
+    confluence?: { space_key?: string; parent_page_title?: string };
+    jira?: { project_key?: string };
+    github?: { owner?: string; repo?: string; base_branch?: string };
+  };
 }
 
 // ─── Artifact Contract Types ──────────────────────────────────────────────────

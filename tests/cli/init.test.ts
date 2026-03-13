@@ -75,7 +75,7 @@ describe("ai-sdd init --tool roo_code", () => {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
     expect(config.mcpServers["ai-sdd"]).toBeDefined();
-    expect(config.mcpServers["ai-sdd"].args).toContain("--mcp");
+    expect(config.mcpServers["ai-sdd"]!.args).toContain("--mcp");
   });
 
   it("creates .ai-sdd/ai-sdd.yaml with adapter.type roo_code", () => {

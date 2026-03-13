@@ -32,6 +32,10 @@ export class ConfidenceOverlay implements BaseOverlay {
     ctx: OverlayContext,
     result: TaskResult,
   ): Promise<PostTaskOverlayResult> {
+    if (ctx.task_definition.overlays?.confidence?.enabled === false) {
+      return { accept: true, new_status: "COMPLETED" };
+    }
+
     const configuredMetrics = ctx.task_definition.overlays?.confidence?.metrics ?? [];
     const builtMetrics = this.buildMetrics(result);
     const llmJudgeScores = await this.dispatchLLMJudgeMetrics(ctx, result, configuredMetrics);

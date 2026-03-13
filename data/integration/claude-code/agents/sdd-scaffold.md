@@ -64,6 +64,16 @@ Generate a full project scaffold. Inputs map to:
    ## Standards
    [Accessibility, privacy, security baselines — inferred from Answers 4+5]
 
+   ## Agent Principles
+   The following principles apply to every agent in this workflow and are enforced
+   as binding constraints. They are injected automatically via `standards/SddAgentPrinciples.md`.
+   - `complete-task` is the only valid completion mechanism — never use `ai-sdd run --task`
+   - Output paths are contracts — `--output-path` must exactly match the file written
+   - Scope is enforced by the agent — do not produce unspecified output
+   - Verify preconditions before acting — confirm inputs exist before proceeding
+   - Progress must be visible — emit status lines; never go silent
+   - No silent stubs — deferred work throws explicit errors, never silently succeeds
+
    ## Open Decisions
    [Decisions that could not be determined. Each item: specific question the developer
     can answer. For any assumption: "Assumed: <X>. Confirm or correct before /sdd-run."]
@@ -160,6 +170,15 @@ Inputs map to:
 
    ## Success Criteria
    [User-facing — from Answer 6]
+
+   ## Agent Principles
+   Binding for all agents in this feature workflow (enforced via standards/SddAgentPrinciples.md):
+   - `complete-task` is the only valid completion mechanism — never use `ai-sdd run --task`
+   - Output paths are contracts — `--output-path` must exactly match the file written
+   - Scope is enforced by the agent — do not produce unspecified output
+   - Verify preconditions before acting — confirm inputs exist before proceeding
+   - Progress must be visible — emit status lines; never go silent
+   - No silent stubs — deferred work throws explicit errors, never silently succeeds
 
    ## Open Decisions
    [Assumptions documented here. Each: "Assumed: <X>. Confirm or correct before /sdd-run."]

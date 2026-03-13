@@ -63,6 +63,14 @@ function mapPostResult(result: PostTaskOverlayResult, overlayId: string): Overla
     if (result.feedback !== undefined) decision.feedback = result.feedback;
     return decision;
   }
+  if (result.data?.["hil_suggested"] === true) {
+    const decision: OverlayDecision = {
+      verdict: "HIL",
+      evidence: makeEvidence(overlayId, result.data),
+    };
+    if (result.feedback !== undefined) decision.feedback = result.feedback;
+    return decision;
+  }
   // NEEDS_REWORK or undefined
   const decision: OverlayDecision = {
     verdict: "REWORK",

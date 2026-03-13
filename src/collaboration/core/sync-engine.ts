@@ -111,7 +111,7 @@ export class DefaultAsCodeSyncEngine implements AsCodeSyncEngine {
             null,
             taskId,
             taskDef.description ?? `Task: ${taskId}`,
-            { labels: ["ai-sdd"], summary: taskId },
+            { labels: ["ai-sdd"], summary: taskId, issue_type: "Task" },
           );
 
           if (!createResult.ok) {

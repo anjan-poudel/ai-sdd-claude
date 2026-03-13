@@ -45,8 +45,8 @@ export class TraceabilityOverlay implements BaseOverlay {
    * Explicit config wins; otherwise defaults to "reviewer".
    * Returns empty string if the resolved agent equals the task agent (self-evaluation).
    */
-  private resolveEvaluator(taskAgent: string): string {
-    const agent = this.explicitEvaluator || DEFAULT_EVALUATOR_AGENT;
+  private resolveEvaluator(taskAgent: string, override?: string): string {
+    const agent = override || this.explicitEvaluator || DEFAULT_EVALUATOR_AGENT;
     return agent === taskAgent ? "" : agent;
   }
 
@@ -54,6 +54,11 @@ export class TraceabilityOverlay implements BaseOverlay {
     ctx: OverlayContext,
     result: TaskResult,
   ): Promise<PostTaskOverlayResult> {
+    const traceabilityConfig = ctx.task_definition.overlays?.traceability;
+    if (traceabilityConfig?.enabled === false) {
+      return { accept: true, new_status: "COMPLETED" };
+    }
+
     // Phase filter: only design + implement
     const phase = (ctx.task_definition as { phase?: string }).phase;
     if (!phase || !TRACEABILITY_PHASES.includes(phase)) {
@@ -61,7 +66,7 @@ export class TraceabilityOverlay implements BaseOverlay {
     }
 
     // Read requirements lock file
-    const lockContent = this.readLockFile();
+    const lockContent = this.readLockFile(traceabilityConfig?.lock_file ?? this.lockFilePath);
     if (!lockContent) {
       this.emitter.emit("traceability.skipped", {
         task_id: ctx.task_id,
@@ -71,7 +76,10 @@ export class TraceabilityOverlay implements BaseOverlay {
     }
 
     // Resolve evaluator — auto-resolve to "reviewer" unless explicitly set
-    const evaluatorAgent = this.resolveEvaluator(ctx.task_definition.agent);
+    const evaluatorAgent = this.resolveEvaluator(
+      ctx.task_definition.agent,
+      traceabilityConfig?.evaluator_agent,
+    );
     if (!evaluatorAgent) {
       this.emitter.emit("traceability.skipped", {
         task_id: ctx.task_id,
@@ -127,12 +135,12 @@ export class TraceabilityOverlay implements BaseOverlay {
     }
   }
 
-  private readLockFile(): string | null {
-    if (!existsSync(this.lockFilePath)) {
+  private readLockFile(lockFilePath: string): string | null {
+    if (!existsSync(lockFilePath)) {
       return null;
     }
     try {
-      return readFileSync(this.lockFilePath, "utf-8");
+      return readFileSync(lockFilePath, "utf-8");
     } catch {
       return null;
     }

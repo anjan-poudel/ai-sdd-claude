@@ -52,8 +52,47 @@
 5. **Document Results**: Add review section to `tasks/todo.md`
 6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
 
+
+## Liveness
+
+**Progress must be visible. Never go silent.**
+
+Silent agents are indistinguishable from hung agents. The liveness monitor will fire
+warnings after prolonged silence, and operators cannot distinguish "working" from "stuck."
+
+- Emit a `[step] ...` status line at the start of each significant action:
+  `[step] Reading specs/design-l1.md...`
+- If a step will take more than a minute, emit a keeping-alive signal:
+  `[working] Analysing component interfaces...`
+- Never suppress errors or warnings silently. If something unexpected happens, say so.
+
+---
+
+## Error handling
+
+**Never return success without doing the work.**
+
+If a feature is not yet implemented, throw an explicit error with an actionable message.
+Silent stubs produce invisible debt that surfaces as production incidents.
+
+```typescript
+// Wrong — silent stub
+async function notYetDone(): Promise<void> {
+  return;
+}
+
+// Correct — explicit deferral
+async function notYetDone(): Promise<void> {
+  throw new Error(
+    "Not yet implemented. See specs/tasks/T-NNN.md for the implementation plan."
+  );
+}
+```
+
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+

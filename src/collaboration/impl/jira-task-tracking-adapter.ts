@@ -214,8 +214,15 @@ export class JiraTaskTrackingAdapter implements TaskTrackingAdapter {
       jql += " AND labels in (" + filter.labels.map(l => `"${l}"`).join(",") + ")";
     }
 
-    const result = await this.client.get<JiraSearchResponse>(
-      `${this.baseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=100`,
+    // Jira removed GET /rest/api/3/search — use POST /rest/api/3/search/jql with
+    // explicit field list so the response includes fields.summary etc.
+    const result = await this.client.post<JiraSearchResponse>(
+      `${this.baseUrl}/rest/api/3/search/jql`,
+      {
+        jql,
+        maxResults: 100,
+        fields: ["summary", "description", "status", "issuetype", "labels", "assignee", "parent"],
+      },
     );
 
     if (!result.ok) return result;

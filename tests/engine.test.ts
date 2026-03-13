@@ -4,6 +4,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { Engine } from "../src/core/engine.ts";
+import type { EngineConfig } from "../src/core/engine.ts";
 import { WorkflowLoader } from "../src/core/workflow-loader.ts";
 import { AgentRegistry } from "../src/core/agent-loader.ts";
 import { StateManager } from "../src/core/state-manager.ts";
@@ -460,7 +461,7 @@ describe("Engine: buildProviderChain wiring integration (ROA-T-011)", () => {
 describe("Engine: context.assembled event", () => {
   function makeEngineWithEmitter(
     workflowYaml: string,
-    config: Parameters<typeof Engine>[7] = {},
+    config: EngineConfig = {},
   ): { engine: Engine; emitter: ObservabilityEmitter } {
     mkdirSync(join(TEST_DIR, ".ai-sdd", "state"), { recursive: true });
     const workflow = WorkflowLoader.loadYAML(workflowYaml);
@@ -497,7 +498,7 @@ describe("Engine: context.assembled event", () => {
   it("emits context.assembled with token_count after assembly", async () => {
     const { engine, emitter } = makeEngineWithEmitter(SINGLE_TASK_WORKFLOW);
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
-    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+    emitter.on((ev) => { events.push({ type: ev.type, data: ev.data }); });
 
     await engine.run();
 
@@ -515,7 +516,7 @@ describe("Engine: context.assembled event", () => {
       context_hil_threshold_pct: 10_000_000,
     });
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
-    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+    emitter.on((ev) => { events.push({ type: ev.type, data: ev.data }); });
 
     await engine.run();
 
@@ -531,7 +532,7 @@ describe("Engine: context.assembled event", () => {
       context_warning_threshold_pct: 80,
     });
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
-    emitter.on((ev) => events.push({ type: ev.type, data: ev.data }));
+    emitter.on((ev) => { events.push({ type: ev.type, data: ev.data }); });
 
     await engine.run();
 
@@ -554,7 +555,11 @@ describe("Adapter: ContextOverflowError is not retried", () => {
     let callCount = 0;
 
     class ThrowingAdapter extends MockAdapter {
-      override async dispatch() {
+      override async dispatch(
+        _taskId: string,
+        _context: import("../src/types/index.ts").AgentContext,
+        _options: import("../src/adapters/base-adapter.ts").DispatchOptions,
+      ): Promise<import("../src/types/index.ts").TaskResult> {
         callCount++;
         throw new ContextOverflowError("Context too large", 50000, 40000);
       }
@@ -563,7 +568,8 @@ describe("Adapter: ContextOverflowError is not retried", () => {
     const adapter = new ThrowingAdapter();
     const context = {
       constitution: "test",
-      task_definition: { id: "t1", description: "test" },
+      handover_state: {},
+      task_definition: { id: "t1", agent: "dev", description: "test" },
       dispatch_mode: "direct" as const,
     };
     const result = await adapter.dispatchWithRetry("t1", context, {
@@ -580,7 +586,11 @@ describe("Adapter: ContextOverflowError is not retried", () => {
     let callCount = 0;
 
     class GenericThrowAdapter extends MockAdapter {
-      override async dispatch() {
+      override async dispatch(
+        _taskId: string,
+        _context: import("../src/types/index.ts").AgentContext,
+        _options: import("../src/adapters/base-adapter.ts").DispatchOptions,
+      ): Promise<import("../src/types/index.ts").TaskResult> {
         callCount++;
         if (callCount < 3) throw new Error("transient error");
         return { status: "COMPLETED" as const };
@@ -590,7 +600,8 @@ describe("Adapter: ContextOverflowError is not retried", () => {
     const adapter = new GenericThrowAdapter();
     const context = {
       constitution: "test",
-      task_definition: { id: "t1", description: "test" },
+      handover_state: {},
+      task_definition: { id: "t1", agent: "dev", description: "test" },
       dispatch_mode: "direct" as const,
     };
     const result = await adapter.dispatchWithRetry("t1", context, {

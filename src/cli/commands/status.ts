@@ -38,6 +38,7 @@ export function registerStatusCommand(program: Command): void {
     .option("--metrics", "Include cost/token/duration per task")
     .option("--workflow <name>", "Workflow name (loads .ai-sdd/workflows/<name>.yaml)")
     .option("--feature <name>", "Feature/session name")
+    .option("--task <id>", "Show detail for a single task (status, outputs, error, iterations)")
     .option("--project <path>", "Project directory", process.cwd())
     .action((options) => {
       const projectPath = resolve(options.project as string);
@@ -68,6 +69,50 @@ export function registerStatusCommand(program: Command): void {
       }
 
       const state = stateManager.getState();
+
+      // --task <id>: show per-task detail (ISSUE-009)
+      if (options.task) {
+        const taskId = options.task as string;
+        const taskState = state.tasks[taskId];
+        if (!taskState) {
+          console.error(`Task '${taskId}' not found in workflow state.`);
+          process.exit(1);
+        }
+        if (options.json) {
+          console.log(JSON.stringify({ task_id: taskId, ...taskState }, null, 2));
+          return;
+        }
+        const symbol = STATUS_SYMBOLS[taskState.status];
+        console.log(`\nTask:       ${taskId}`);
+        console.log(`Status:     ${symbol} ${taskState.status}`);
+        console.log(`Iterations: ${taskState.iterations}`);
+        if (taskState.started_at) console.log(`Started:    ${taskState.started_at}`);
+        if (taskState.completed_at) console.log(`Completed:  ${taskState.completed_at}`);
+        if (taskState.started_at && taskState.completed_at) {
+          const dur = Date.parse(taskState.completed_at) - Date.parse(taskState.started_at);
+          console.log(`Duration:   ${formatDuration(dur)}`);
+        }
+        if (taskState.tokens_used) {
+          console.log(`Tokens:     ${taskState.tokens_used.total}`);
+        }
+        if (taskState.cost_usd !== undefined) {
+          console.log(`Cost:       $${taskState.cost_usd.toFixed(4)}`);
+        }
+        if (taskState.rework_feedback) {
+          console.log(`\nRework feedback:\n  ${taskState.rework_feedback}`);
+        }
+        if (taskState.error) {
+          console.log(`\nError:\n  ${taskState.error}`);
+        }
+        const outputs = (taskState.outputs ?? []) as Array<{ path: string; contract?: string }>;
+        if (outputs.length > 0) {
+          console.log(`\nOutputs:`);
+          for (const o of outputs) {
+            console.log(`  ${o.path}${o.contract ? ` (${o.contract})` : ""}`);
+          }
+        }
+        return;
+      }
 
       if (options.json) {
         if (options.next) {

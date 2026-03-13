@@ -14,6 +14,7 @@ import { registerInitCommand } from "./commands/init.ts";
 import { registerServeCommand } from "./commands/serve.ts";
 import { registerMigrateCommand } from "./commands/migrate.ts";
 import { registerSessionsCommand } from "./commands/sessions.ts";
+import { registerTaskCommand } from "./commands/task.ts";
 
 const program = new Command();
 
@@ -32,6 +33,7 @@ registerInitCommand(program);
 registerServeCommand(program);
 registerMigrateCommand(program);
 registerSessionsCommand(program);
+registerTaskCommand(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);

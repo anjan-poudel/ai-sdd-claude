@@ -44,13 +44,17 @@ interface ConfluenceCommentsResponse {
 export class ConfluenceDocumentAdapter implements DocumentAdapter {
   readonly provider = "confluence";
 
+  private readonly baseUrl: string;
   private readonly client: RetryHttpClient;
 
   constructor(
     private readonly apiToken: string,
     private readonly userEmail: string,
-    private readonly baseUrl: string,
+    baseUrl: string,
   ) {
+    // Normalise: strip trailing /wiki so urls like https://org.atlassian.net/wiki
+    // don't double up when the adapter appends /wiki/api/v2/...
+    this.baseUrl = baseUrl.replace(/\/wiki\/?$/, "");
     const credentials = Buffer.from(`${userEmail}:${apiToken}`).toString("base64");
     this.client = new RetryHttpClient({
       "Authorization": `Basic ${credentials}`,
@@ -62,17 +66,22 @@ export class ConfluenceDocumentAdapter implements DocumentAdapter {
   async createPage(space: string, parentTitle: string, title: string, contentMd: string): Promise<Result<PageRef>> {
     const storage = markdownToConfluenceStorage(contentMd);
 
+    // Confluence v2 API requires numeric spaceId. Resolve the key if not already numeric.
+    const spaceIdResult = await this.resolveSpaceId(space);
+    if (!spaceIdResult.ok) return spaceIdResult;
+    const spaceId = spaceIdResult.value;
+
     // Resolve parent page ID.
     let parentId: string | undefined;
     if (parentTitle) {
-      const parentResult = await this.findPageByTitle(space, parentTitle);
+      const parentResult = await this.findPageByTitle(spaceId, parentTitle);
       if (parentResult.ok) {
         parentId = parentResult.value;
       }
     }
 
     const body: Record<string, unknown> = {
-      spaceId: space,
+      spaceId,
       title,
       body: {
         representation: "storage",
@@ -107,7 +116,7 @@ export class ConfluenceDocumentAdapter implements DocumentAdapter {
   async updatePage(ref: PageRef, contentMd: string): Promise<Result<PageRef>> {
     const storage = markdownToConfluenceStorage(contentMd);
 
-    // Fetch current page to get version number.
+    // Fetch current page to get version number and title.
     const currentResult = await this.client.get<ConfluencePage>(
       `${this.baseUrl}/wiki/api/v2/pages/${ref.id}`,
     );
@@ -120,6 +129,7 @@ export class ConfluenceDocumentAdapter implements DocumentAdapter {
       `${this.baseUrl}/wiki/api/v2/pages/${ref.id}`,
       {
         id: ref.id,
+        status: "current",
         title: currentResult.value.title,
         version: { number: newVersion },
         body: {
@@ -182,7 +192,7 @@ export class ConfluenceDocumentAdapter implements DocumentAdapter {
 
   async getComments(ref: PageRef, since?: string): Promise<Result<Comment[]>> {
     const result = await this.client.get<ConfluenceCommentsResponse>(
-      `${this.baseUrl}/wiki/api/v2/pages/${ref.id}/footer-comments`,
+      `${this.baseUrl}/wiki/api/v2/pages/${ref.id}/footer-comments?body-format=storage`,
     );
 
     if (!result.ok) return result;
@@ -245,6 +255,33 @@ export class ConfluenceDocumentAdapter implements DocumentAdapter {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Resolve a space key (e.g. "aisdd") to its numeric ID.
+   * If the value is already numeric, returns it as-is.
+   * Confluence v2 API requires numeric spaceId in create/search calls.
+   */
+  private async resolveSpaceId(keyOrId: string): Promise<Result<string>> {
+    if (/^\d+$/.test(keyOrId)) return { ok: true, value: keyOrId };
+
+    // v2 spaces?keys= filter is unreliable — use v1 REST API to look up by key.
+    const result = await this.client.get<{ results: Array<{ id: number; key: string }> }>(
+      `${this.baseUrl}/wiki/rest/api/space?spaceKey=${encodeURIComponent(keyOrId)}&limit=1`,
+    );
+    if (!result.ok) return result;
+    const space = result.value.results[0];
+    if (!space) {
+      return {
+        ok: false,
+        error: {
+          code: "NOT_FOUND",
+          message: `Confluence space '${keyOrId}' not found`,
+          retryable: false,
+        },
+      };
+    }
+    return { ok: true, value: String(space.id) };
+  }
 
   private async findPageByTitle(spaceId: string, title: string): Promise<Result<string>> {
     const result = await this.client.get<{ results: ConfluencePage[] }>(

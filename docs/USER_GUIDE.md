@@ -508,7 +508,7 @@ The output shows the full merged context including `<!-- standards: path -->` so
 ### Overlay Chain Order (locked)
 
 ```
-HIL → Evidence Gate → Agentic Review → Paired Workflow → Confidence → Agent Execution
+HIL → optional Remote Overlays → Evidence Gate → Agentic Review / Paired Workflow → Traceability → Confidence → Agent Execution
 ```
 
 `Agentic Review` and `Paired Workflow` are mutually exclusive — enable one or neither, never both on the same task.

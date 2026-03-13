@@ -161,6 +161,9 @@ export class Engine {
         completed.push(taskId);
       }
     }
+    if (completedTasks.size > 0) {
+      console.log(`[ai-sdd] resuming — skipping ${completedTasks.size} already-completed task(s): [${[...completedTasks].join(", ")}]`);
+    }
 
     // Execute tasks level by level (parallel groups)
     for (const group of this.workflow.execution_plan.groups) {
@@ -179,6 +182,7 @@ export class Engine {
       });
 
       if (groupTasks.length === 0) continue;
+      console.log(`[ai-sdd] group level ${group.level}: dispatching [${groupTasks.join(", ")}]`);
 
       // Dispatch group in parallel (up to semaphore limit)
       await Promise.all(
@@ -1010,7 +1014,10 @@ export class Engine {
       reason: decision.feedback ?? "Post-task HIL request",
     });
 
-    this.stateManager.transition(taskId, "HIL_PENDING", { hil_item_id: hilId });
+    this.stateManager.transition(taskId, "HIL_PENDING", {
+      hil_item_id: hilId,
+      ...(decision.evidence && { overlay_evidence: decision.evidence }),
+    });
     this.emitter.emit("task.hil_pending", { task_id: taskId, hil_id: hilId });
 
     const waitResult = hilOverlay.awaitResolution

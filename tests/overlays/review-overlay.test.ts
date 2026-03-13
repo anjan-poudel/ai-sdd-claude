@@ -53,20 +53,22 @@ function makeContext(reviewConfig?: {
 
 function makeReviewerAdapter(decisions: Array<{ decision: "GO" | "NO_GO"; feedback?: string }>): RuntimeAdapter {
   let callIndex = 0;
+  const dispatch = async (_taskId: string, _ctx: AgentContext, _opts: DispatchOptions): Promise<TaskResult> => {
+    const d = decisions[Math.min(callIndex, decisions.length - 1)]!;
+    callIndex++;
+    return {
+      status: "COMPLETED",
+      handover_state: { decision: d.decision, feedback: d.feedback ?? "" },
+    };
+  };
+
   return {
     dispatch_mode: "direct" as const,
     adapter_type: "mock",
     retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
-    async dispatch(_taskId: string, _ctx: AgentContext, _opts: DispatchOptions): Promise<TaskResult> {
-      const d = decisions[Math.min(callIndex, decisions.length - 1)]!;
-      callIndex++;
-      return {
-        status: "COMPLETED",
-        handover_state: { decision: d.decision, feedback: d.feedback ?? "" },
-      };
-    },
+    dispatch,
     async dispatchWithRetry(task_id: string, ctx: AgentContext, opts: DispatchOptions): Promise<TaskResult> {
-      return this.dispatch(task_id, ctx, opts);
+      return dispatch(task_id, ctx, opts);
     },
     async healthCheck(): Promise<boolean> { return true; },
   } as unknown as RuntimeAdapter;
@@ -223,7 +225,7 @@ describe("ReviewOverlay: reviewer prompt includes constitution", () => {
         capturedPrompt = ctx.constitution;
         return { status: "COMPLETED", handover_state: { decision: "GO", feedback: "" } };
       },
-      async dispatchWithRetry(t: string, c: AgentContext, o: DispatchOptions) { return this.dispatch(t, c, o); },
+      async dispatchWithRetry() { return { status: "COMPLETED", handover_state: { decision: "GO", feedback: "" } }; },
       async healthCheck() { return true; },
     } as unknown as RuntimeAdapter;
 

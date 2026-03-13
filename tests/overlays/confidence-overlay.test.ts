@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { ConfidenceOverlay } from "../../src/overlays/confidence/confidence-overlay.ts";
+import { RuntimeAdapter } from "../../src/adapters/base-adapter.ts";
 import type { OverlayContext } from "../../src/overlays/base-overlay.ts";
 import type { TaskResult } from "../../src/types/index.ts";
 import { ObservabilityEmitter } from "../../src/observability/emitter.ts";
@@ -127,19 +128,23 @@ describe("ConfidenceOverlay: uses eval/scorer.ts metrics", () => {
 });
 
 describe("ConfidenceOverlay: llm_judge dispatch", () => {
-  function makeMockAdapter(score: number): import("../../src/adapters/base-adapter.ts").RuntimeAdapter {
-    return {
-      dispatch_mode: "direct" as const,
-      adapter_type: "mock",
-      retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
+  function makeMockAdapter(score: number): RuntimeAdapter {
+    class JudgeAdapter extends RuntimeAdapter {
+      readonly dispatch_mode = "direct" as const;
+      readonly adapter_type = "mock";
+      protected override retry_policy = {
+        max_attempts: 1,
+        retryable_errors: [],
+        backoff_base_ms: 0,
+        backoff_max_ms: 0,
+      };
+
       async dispatch(): Promise<import("../../src/types/index.ts").TaskResult> {
         return { status: "COMPLETED", handover_state: { score } };
-      },
-      async dispatchWithRetry(task_id: string, ctx: import("../../src/types/index.ts").AgentContext, opts: import("../../src/adapters/base-adapter.ts").DispatchOptions) {
-        return this.dispatch(task_id, ctx, opts);
-      },
-      async healthCheck() { return true; },
-    } as import("../../src/adapters/base-adapter.ts").RuntimeAdapter;
+      }
+    }
+
+    return new JudgeAdapter();
   }
 
   function makeCtxWithJudge(taskAgent: string, evaluatorAgent: string): OverlayContext {
@@ -192,16 +197,22 @@ describe("ConfidenceOverlay: llm_judge dispatch", () => {
   });
 
   it("scores 0.5 neutral when judge dispatch fails and continues (does not abort)", async () => {
-    const failAdapter: import("../../src/adapters/base-adapter.ts").RuntimeAdapter = {
-      dispatch_mode: "direct" as const,
-      adapter_type: "mock",
-      retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
+    class FailAdapter extends RuntimeAdapter {
+      readonly dispatch_mode = "direct" as const;
+      readonly adapter_type = "mock";
+      protected override retry_policy = {
+        max_attempts: 1,
+        retryable_errors: [],
+        backoff_base_ms: 0,
+        backoff_max_ms: 0,
+      };
+
       async dispatch(): Promise<import("../../src/types/index.ts").TaskResult> {
         return { status: "FAILED", error: "agent unavailable" };
-      },
-      async dispatchWithRetry(t: string, c: import("../../src/types/index.ts").AgentContext, o: import("../../src/adapters/base-adapter.ts").DispatchOptions) { return this.dispatch(t, c, o); },
-      async healthCheck() { return true; },
-    } as import("../../src/adapters/base-adapter.ts").RuntimeAdapter;
+      }
+    }
+
+    const failAdapter = new FailAdapter();
 
     const overlay = new ConfidenceOverlay(emitter, { threshold: 0.0 }, failAdapter);
     const result = await overlay.postTask(
@@ -214,6 +225,26 @@ describe("ConfidenceOverlay: llm_judge dispatch", () => {
     const metrics = evalResult?.["metrics"] as Array<{ type: string; score: number }>;
     const judgeMetric = metrics?.find((m) => m.type === "llm_judge");
     expect(judgeMetric?.score).toBe(0.5);
+  });
+
+  it("task-level enabled:false skips confidence evaluation", async () => {
+    const overlay = new ConfidenceOverlay(emitter, { threshold: 0.99 });
+    const result = await overlay.postTask(
+      {
+        ...ctx,
+        task_definition: {
+          ...ctx.task_definition,
+          overlays: { confidence: { enabled: false, threshold: 0.99 } },
+        },
+      },
+      {
+        status: "COMPLETED",
+        outputs: [],
+        handover_state: {},
+      },
+    );
+    expect(result.accept).toBe(true);
+    expect(result.new_status).toBe("COMPLETED");
   });
 });
 

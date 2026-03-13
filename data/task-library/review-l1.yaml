@@ -7,7 +7,7 @@ description: |
 overlays:
   hil:         { enabled: false }
   review:      { enabled: true }
-  policy_gate: { risk_tier: T1 }
+  policy_gate: { risk_tier: T0 }
 outputs:
   - path: "specs/{{task_id}}.md"
     contract: review_report

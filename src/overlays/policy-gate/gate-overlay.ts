@@ -34,6 +34,9 @@ export class PolicyGateOverlay implements BaseOverlay {
     result: TaskResult,
   ): Promise<PostTaskOverlayResult> {
     const taskDef = ctx.task_definition;
+    if (taskDef.overlays?.policy_gate?.enabled === false) {
+      return { accept: true, new_status: "COMPLETED" };
+    }
     const riskTier: RiskTier = taskDef.overlays?.policy_gate?.risk_tier ?? "T0";
 
     const failures: string[] = [];

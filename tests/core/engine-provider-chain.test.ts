@@ -311,6 +311,54 @@ describe("Engine: provider chain post-task verdict mapping", () => {
     // Post-chain should have been called only once (no re-iterations after terminal FAIL)
     expect(spyProvider.postCallCount).toBe(1);
   });
+
+  it("7b. post-chain HIL → task transitions through HIL_PENDING and preserves overlay evidence", async () => {
+    const adapter = new MockAdapter();
+    let postCallCount = 0;
+
+    const hilProvider = new LocalOverlayProvider({
+      name: "hil",
+      enabled: true,
+      async preTask() {
+        return { proceed: true };
+      },
+      async awaitResolution() {
+        return { proceed: true, feedback: "Human requested changes" };
+      },
+    });
+
+    const postProvider: OverlayProvider = {
+      id: "review-like-post-spy",
+      runtime: "local",
+      hooks: ["post_task"],
+      enabled: true,
+      async invokePost(): Promise<OverlayDecision> {
+        postCallCount++;
+        if (postCallCount === 1) {
+          return {
+            verdict: "HIL",
+            feedback: "Needs human review",
+            evidence: { overlay_id: "review", source: "local", data: { hil_suggested: true } },
+          };
+        }
+        return { verdict: "PASS" };
+      },
+    };
+
+    const { engine, stateManager } = makeSetup(adapter, [hilProvider, postProvider]);
+    const transitions: string[] = [];
+    const origTransition = stateManager.transition.bind(stateManager);
+    stateManager.transition = ((taskId, status, payload, taskMode) => {
+      transitions.push(status);
+      return origTransition(taskId, status, payload, taskMode);
+    }) as StateManager["transition"];
+
+    const result = await engine.run();
+
+    expect(result.completed).toContain("task-a");
+    expect(transitions).toContain("HIL_PENDING");
+    expect(stateManager.getTaskState("task-a").overlay_evidence?.overlay_id).toBe("review");
+  });
 });
 
 // ── Evidence propagation ────────────────────────────────────────────────────────

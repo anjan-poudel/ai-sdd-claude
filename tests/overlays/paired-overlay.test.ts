@@ -57,20 +57,22 @@ function makeMockAdapter(
   decisions: Array<{ approved: boolean; feedback?: string }>,
 ): RuntimeAdapter {
   let callIndex = 0;
+  const dispatch = async (_taskId: string, _ctx: AgentContext, _opts: DispatchOptions): Promise<TaskResult> => {
+    const d = decisions[callIndex % decisions.length]!;
+    callIndex++;
+    return {
+      status: "COMPLETED",
+      handover_state: { approved: d.approved, feedback: d.feedback ?? "" },
+    };
+  };
+
   return {
     dispatch_mode: "direct" as const,
     adapter_type: "mock",
     retry_policy: { max_attempts: 1, retryable_errors: [], backoff_base_ms: 0, backoff_max_ms: 0 },
-    async dispatch(_taskId: string, _ctx: AgentContext, _opts: DispatchOptions): Promise<TaskResult> {
-      const d = decisions[callIndex % decisions.length]!;
-      callIndex++;
-      return {
-        status: "COMPLETED",
-        handover_state: { approved: d.approved, feedback: d.feedback ?? "" },
-      };
-    },
+    dispatch,
     async dispatchWithRetry(task_id: string, ctx: AgentContext, opts: DispatchOptions): Promise<TaskResult> {
-      return this.dispatch(task_id, ctx, opts);
+      return dispatch(task_id, ctx, opts);
     },
     async healthCheck(): Promise<boolean> { return true; },
   } as unknown as RuntimeAdapter;

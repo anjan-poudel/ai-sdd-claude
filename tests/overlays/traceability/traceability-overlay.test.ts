@@ -64,11 +64,13 @@ function makeMockAdapter(opts: {
   handover_state?: Record<string, unknown>;
   fail?: boolean;
   failError?: string;
+  onDispatch?: (taskId: string, ctx: AgentContext, opts: DispatchOptions) => void;
 }): RuntimeAdapter {
   return {
     dispatch_mode: "direct",
     adapter_type: "mock",
-    dispatch: async (_agent: string, _ctx: AgentContext, _opts: DispatchOptions): Promise<TaskResult> => {
+    dispatch: async (taskId: string, ctx: AgentContext, dispatchOpts: DispatchOptions): Promise<TaskResult> => {
+      opts.onDispatch?.(taskId, ctx, dispatchOpts);
       if (opts.fail) {
         return { status: "FAILED", error: opts.failError ?? "Judge failed" };
       }
@@ -140,6 +142,75 @@ describe("TraceabilityOverlay: no adapter", () => {
       const skippedEvent = events.find((e) => e.type === "traceability.skipped");
       expect(skippedEvent).toBeDefined();
       expect(skippedEvent?.data["reason"]).toBe("no adapter available");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("TraceabilityOverlay: task-level config", () => {
+  it("task-level enabled:false skips traceability", async () => {
+    const { dir, lockPath } = createTempLockFile();
+    try {
+      const { emitter } = makeEmitter();
+      const overlay = new TraceabilityOverlay(
+        emitter,
+        { lockFilePath: lockPath },
+        makeMockAdapter({
+          handover_state: { in_scope: false, findings: ["should not run"] },
+        }),
+      );
+
+      const baseCtx = makeCtx();
+      const result = await overlay.postTask(
+        {
+          ...baseCtx,
+          task_definition: {
+            ...baseCtx.task_definition,
+            overlays: { traceability: { enabled: false, lock_file: lockPath, evaluator_agent: "reviewer" } },
+          },
+        },
+        makeResult(),
+      );
+
+      expect(result.accept).toBe(true);
+      expect(result.new_status).toBe("COMPLETED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("task overlay config supplies evaluator_agent and lock_file at runtime", async () => {
+    const { dir, lockPath } = createTempLockFile();
+    try {
+      const { emitter, events } = makeEmitter();
+      const overlay = new TraceabilityOverlay(
+        emitter,
+        {},
+        makeMockAdapter({
+          handover_state: { in_scope: true, findings: [] },
+          onDispatch: (_taskId, ctx) => {
+            expect(ctx.task_definition.agent).toBe("architect");
+            expect(ctx.constitution).toContain("FR-001: User login");
+          },
+        }),
+      );
+
+      const baseCtx = makeCtx({ agent: "developer" });
+      const result = await overlay.postTask(
+        {
+          ...baseCtx,
+          task_definition: {
+            ...baseCtx.task_definition,
+            overlays: { traceability: { enabled: true, lock_file: lockPath, evaluator_agent: "architect" } },
+          },
+        },
+        makeResult(),
+      );
+
+      expect(result.accept).toBe(true);
+      const evalEvent = events.find((e) => e.type === "traceability.evaluated");
+      expect(evalEvent?.data["evaluator_agent"]).toBe("architect");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

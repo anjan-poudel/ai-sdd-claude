@@ -3,6 +3,8 @@
  * Requires `claude` CLI on PATH.
  */
 
+import { mkdirSync, createWriteStream } from "fs";
+import { join, resolve } from "path";
 import type { AgentContext, TaskResult } from "../types/index.ts";
 import type { DispatchOptions } from "./base-adapter.ts";
 import { RuntimeAdapter } from "./base-adapter.ts";
@@ -24,7 +26,7 @@ export class ClaudeCodeAdapter extends RuntimeAdapter {
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     super();
     this.dispatch_mode = options.dispatch_mode ?? "delegation";
-    this.timeout_ms = options.timeout_ms ?? 300_000; // 5 minutes
+    this.timeout_ms = options.timeout_ms ?? 600_000; // 10 minutes
     this.model = options.model;
   }
 
@@ -50,32 +52,132 @@ export class ClaudeCodeAdapter extends RuntimeAdapter {
     args.push(taskBrief);
 
     try {
+      // Open a per-task log file so users can tail agent output live (ISSUE-007).
+      // Location: .ai-sdd/sessions/default/logs/<task-id>.log (relative to cwd).
+      const logsDir = resolve(process.cwd(), ".ai-sdd", "sessions", "default", "logs");
+      try { mkdirSync(logsDir, { recursive: true }); } catch { /* ignore */ }
+      const logPath = join(logsDir, `${task_id}.log`);
+      const logStream = createWriteStream(logPath, { flags: "a" });
+      logStream.write(`\n--- ${new Date().toISOString()} task=${task_id} ---\n`);
+
       const spawnEnv = { ...process.env };
       delete spawnEnv["CLAUDECODE"];
+      process.stdout.write(`[ai-sdd]   spawning claude agent for '${task_id}' (log: ${logPath})\n`);
       const proc = Bun.spawn(["claude", ...args], {
         stdout: "pipe",
         stderr: "pipe",
         env: spawnEnv,
       });
 
-      // Race between process completion and timeout
+      // ISSUE-001: Liveness monitor — warn if no stdout/stderr for N minutes.
+      // Configurable via AI_SDD_LIVENESS_INTERVAL_MS (default: 5 minutes).
+      // This catches hung agents early without killing them.
+      const livenessIntervalMs = parseInt(
+        process.env.AI_SDD_LIVENESS_INTERVAL_MS ?? "300000", // 5 minutes
+        10,
+      );
+      const failOnTimeout = process.env.FAIL_ON_TASK_TIMEOUT === "true";
+
+      let lastActivityAt = Date.now();
+      let stdoutChunks = "";
+      let stderrChunks = "";
+      let livenessWarnCount = 0;
+
+      // Drain stdout incrementally — tee to log file + accumulate for parsing.
+      const drainStdout = (async () => {
+        if (!proc.stdout) return;
+        const reader = proc.stdout.getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            stdoutChunks += chunk;
+            lastActivityAt = Date.now();
+            try { logStream.write(chunk); } catch { /* non-fatal */ }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      })();
+
+      // Drain stderr incrementally — tee to log file + accumulate.
+      const drainStderr = (async () => {
+        if (!proc.stderr) return;
+        const reader = proc.stderr.getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            stderrChunks += chunk;
+            lastActivityAt = Date.now();
+            try { logStream.write(`[stderr] ${chunk}`); } catch { /* non-fatal */ }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      })();
+
+      // Liveness ticker — logs a warning if no output for livenessIntervalMs.
+      let livenessTimer: ReturnType<typeof setInterval> | undefined;
+      const livenessPromise = new Promise<void>((resolve) => {
+        livenessTimer = setInterval(() => {
+          const silentMs = Date.now() - lastActivityAt;
+          if (silentMs >= livenessIntervalMs) {
+            livenessWarnCount++;
+            console.warn(
+              `[ai-sdd] Task '${task_id}' has produced no output for ` +
+              `${Math.round(silentMs / 60000)} min (warning #${livenessWarnCount}). ` +
+              `Tail logs: tail -f ${logPath}`,
+            );
+          }
+        }, livenessIntervalMs);
+        // Resolve when process exits — the interval will be cleared then.
+        void proc.exited.then(() => resolve());
+      });
+      void livenessPromise; // suppress unused-promise lint
+
+      // Overall timeout — hard limit for the whole task.
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new TimeoutError(`Task '${task_id}' timed out after ${this.timeout_ms}ms`, this.timeout_ms)),
+          () => {
+            reject(new TimeoutError(`Task '${task_id}' timed out after ${this.timeout_ms}ms`, this.timeout_ms));
+          },
           this.timeout_ms,
         ),
       );
 
       const completion = (async () => {
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
-        return { stdout, stderr, exitCode };
+        await Promise.all([drainStdout, drainStderr]);
+        const exitCode = await proc.exited;
+        clearInterval(livenessTimer);
+        process.stdout.write(`[ai-sdd]   agent exited (task: ${task_id}, code: ${exitCode})\n`);
+        try {
+          logStream.write(`\n--- exit=${exitCode} ---\n`);
+          logStream.end();
+        } catch { /* non-fatal */ }
+        return { stdout: stdoutChunks, stderr: stderrChunks, exitCode };
       })();
 
-      const { stdout, stderr, exitCode } = await Promise.race([completion, timeout]);
+      let stdout: string, stderr: string, exitCode: number;
+      try {
+        ({ stdout, stderr, exitCode } = await Promise.race([completion, timeout]));
+      } catch (err) {
+        clearInterval(livenessTimer);
+        if (err instanceof TimeoutError && !failOnTimeout) {
+          console.warn(
+            `[ai-sdd] Task '${task_id}' exceeded hard timeout — awaiting process completion ` +
+            `(set FAIL_ON_TASK_TIMEOUT=true to abort immediately).`,
+          );
+          ({ stdout, stderr, exitCode } = await completion);
+          console.warn(`[ai-sdd] Task '${task_id}' completed after timeout. Consider increasing timeout_ms.`);
+        } else {
+          throw err;
+        }
+      }
 
       if (exitCode !== 0) {
         throw new ToolError(
