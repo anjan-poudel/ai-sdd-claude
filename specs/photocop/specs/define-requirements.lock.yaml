@@ -1,0 +1,80 @@
+spec_hash:
+  hash: "6d81da7fffbe6be1abcd87f40e1303de5050e331a2ec69554e462a5d6024755e"
+  source_paths:
+    - specs/define-requirements.md
+    - specs/define-requirements/FR/FR-001-image-upload.md
+    - specs/define-requirements/FR/FR-002-manipulation-detection.md
+    - specs/define-requirements/FR/FR-003-heatmap-generation.md
+    - specs/define-requirements/FR/FR-004-exif-extraction.md
+    - specs/define-requirements/FR/FR-005-json-results-export.md
+    - specs/define-requirements/NFR/NFR-001-in-memory-processing.md
+    - specs/define-requirements/NFR/NFR-002-accuracy.md
+    - specs/define-requirements/NFR/NFR-003-performance.md
+    - specs/define-requirements/NFR/NFR-004-privacy.md
+    - specs/define-requirements/NFR/NFR-005-security.md
+
+locked_at: "2026-03-14T02:54:00.000Z"
+
+requirements:
+  functional:
+    - id: FR-001
+      title: Image Upload
+      priority: MUST
+      summary: Accept JPEG, PNG, WebP, TIFF, BMP via browser upload; validate magic bytes; max 10 MB; no persistence
+
+    - id: FR-002
+      title: Manipulation Detection
+      priority: MUST
+      summary: Analyse image using ELA, noise analysis, clone detection; return probability score 0.0–1.0 with verdict
+
+    - id: FR-003
+      title: Heatmap Generation
+      priority: MUST
+      summary: Generate heatmap overlay highlighting suspicious regions; return as data URI inline with response
+
+    - id: FR-004
+      title: EXIF Extraction
+      priority: MUST
+      summary: Parse all EXIF metadata; return as structured JSON; handle missing/corrupt metadata gracefully
+
+    - id: FR-005
+      title: JSON Results Export
+      priority: MUST
+      summary: Return unified JSON response with score, verdict, heatmap_url, exif, regions
+
+  non_functional:
+    - id: NFR-001
+      title: In-Memory Processing
+      priority: MUST
+      summary: All image processing in RAM; no image data persisted to disk or cloud after request completes
+
+    - id: NFR-002
+      title: Accuracy
+      priority: MUST
+      summary: Minimise false positives/negatives; validated against labelled benchmark of ≥200 images
+
+    - id: NFR-003
+      title: Performance
+      priority: MUST
+      summary: Results returned within 10 seconds for images up to 10 MB
+
+    - id: NFR-004
+      title: Privacy
+      priority: MUST
+      summary: No user data, image content, or EXIF metadata logged or stored after request completes
+
+    - id: NFR-005
+      title: Security
+      priority: MUST
+      summary: Magic-byte validation, size limits, no execution of uploaded content, no secrets in source
+
+out_of_scope:
+  - User authentication or accounts
+  - Persistent image or report storage
+  - Batch upload
+  - Async job queuing or webhooks
+  - Non-JSON export formats
+  - Mobile native applications
+  - Rate limiting (post-MVP)
+  - AI-generation detection beyond ELA/noise/clone forensics
+  - Image editing tools
