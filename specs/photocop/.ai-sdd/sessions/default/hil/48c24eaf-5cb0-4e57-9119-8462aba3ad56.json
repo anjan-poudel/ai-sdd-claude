@@ -1,0 +1,14 @@
+{
+  "id": "48c24eaf-5cb0-4e57-9119-8462aba3ad56",
+  "task_id": "define-requirements",
+  "workflow_id": "default-sdd",
+  "status": "RESOLVED",
+  "reason": "HIL triggered for task 'define-requirements'",
+  "context": {
+    "task_description": "Elicit and document project requirements. Produce a structured folder of\nrequirements: one file per FR, one file per NFR, with Gherkin acceptance\ncriteria embedded in each file, and index files at each folder level.\nAfter stakeholder HIL sign-off, produce a requirements lock file that\ncaptures a stable snapshot for downstream drift detection.\n",
+    "risk_tier": "T0",
+    "agent": "ba"
+  },
+  "created_at": "2026-03-14T03:01:38.193Z",
+  "resolved_at": "2026-03-14T03:03:54.446Z"
+}

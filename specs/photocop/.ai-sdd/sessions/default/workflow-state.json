@@ -1,0 +1,94 @@
+{
+  "schema_version": "1",
+  "workflow": "default-sdd",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/photocop",
+  "started_at": "2026-03-14T02:45:07.725Z",
+  "updated_at": "2026-03-14T06:19:16.393Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T02:45:16.333Z",
+      "completed_at": "2026-03-14T03:04:00.969Z",
+      "outputs": [
+        {
+          "path": "specs/define-requirements.md",
+          "type": "requirements_doc"
+        }
+      ],
+      "iterations": 4,
+      "hil_item_id": "48c24eaf-5cb0-4e57-9119-8462aba3ad56",
+      "overlay_evidence": {
+        "overlay_id": "policy_gate",
+        "source": "local"
+      },
+      "rework_feedback": "Gate failed (T0): No outputs produced",
+      "error": "Exceeded max_rework_iterations (3)"
+    },
+    "design-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T03:10:00.000Z",
+      "completed_at": "2026-03-14T03:07:35.461Z",
+      "outputs": [
+        {
+          "path": "specs/design-l1.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T03:12:41.298Z",
+      "completed_at": "2026-03-14T03:13:31.230Z",
+      "outputs": [
+        {
+          "path": "specs/review-l1.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "design-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T03:20:00.000Z",
+      "completed_at": "2026-03-14T03:20:13.852Z",
+      "outputs": [
+        {
+          "path": "specs/design-l2.md"
+        }
+      ],
+      "iterations": 1
+    },
+    "review-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T03:25:56.520054Z",
+      "completed_at": "2026-03-14T03:25:59.927Z",
+      "outputs": [
+        {
+          "path": "specs/review-l2.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "plan-tasks": {
+      "status": "FAILED",
+      "started_at": "2026-03-14T03:41:54.494Z",
+      "completed_at": "2026-03-14T06:19:16.393Z",
+      "outputs": [],
+      "iterations": 1,
+      "error": "claude CLI exited with code 1: {\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"duration_ms\":885561,\"duration_api_ms\":0,\"num_turns\":1,\"result\":\"API Error: Unable to connect to API (ConnectionRefused)\",\"stop_reason\":\"stop_sequence\",\"session_id\":\"339b8db2-6088-4e5b-ba70-ffbc3702ff07\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":0,\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"\",\"iterations\":[],\"speed\":\"standard\"},\"modelUsage\":{},\"permission_denials\":[],\"fast_mode_state\":\"off\",\"uuid\":\"6f646a22-9926-4f87-bd85-8cf251fd0a8b\"}\n"
+    },
+    "implement": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-implementation": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    }
+  }
+}
