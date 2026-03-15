@@ -266,12 +266,20 @@ export class GitHubTaskTrackingAdapter implements TaskTrackingAdapter {
   }
 
   async transitionTask(ref: IssueRef, targetStatus: string): Promise<Result<void>> {
+    // Without a project board, map "closed"/"open" directly to issue state via REST.
     if (!this.projectNumber) {
+      const state = targetStatus.toLowerCase();
+      if (state === "closed" || state === "open") {
+        const issueNumber = extractIssueNumber(ref);
+        const result = await this.patchIssue(issueNumber, { state }, ref);
+        if (!result.ok) return { ok: false, error: result.error };
+        return { ok: true, value: undefined };
+      }
       return {
         ok: false,
         error: {
           code: "VALIDATION",
-          message: "transitionTask requires project_number to be configured (GitHub Projects v2)",
+          message: `transitionTask: status '${targetStatus}' requires project_number to be configured (GitHub Projects v2)`,
           retryable: false,
         },
       };

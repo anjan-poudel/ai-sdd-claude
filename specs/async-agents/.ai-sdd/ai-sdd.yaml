@@ -10,3 +10,24 @@ engine:
 overlays:
   hil:
     enabled: true
+
+collaboration:
+  enabled: true
+  adapters:
+    notification: slack
+    document: confluence
+    task_tracking: jira
+    code_review: github
+  slack:
+    notify_channel: ai-sdd
+    mentions:
+      ba: []          # fill with Slack user IDs, e.g. ["U01234567"]
+      pe: []
+      le: []
+      dev: []
+      reviewer: []
+  confluence:
+    space_key: AISDD
+    parent_page_title: ai-sdd Artifacts
+  jira:
+    project_key: AST

@@ -57,7 +57,14 @@ describe("Slack (live)", () => {
   const skip = !hasEnv("SLACK_BOT_TOKEN", "SLACK_NOTIFY_CHANNEL");
 
   it("healthCheck returns ok:true with valid token", async () => {
-    if (skip) { console.log("SKIP: SLACK_BOT_TOKEN not set"); return; }
+    if (skip) {
+      if(!hasEnv('SLACK_BOT_TOKEN')){
+        console.log("SKIP: SLACK_BOT_TOKEN not set");
+      }
+       else
+        console.log("SKIP: SLACK_NOTIFY_CHANNEL not set");
+      return;
+    }
 
     const adapter = new SlackNotificationAdapter(env("SLACK_BOT_TOKEN"));
     const result = await adapter.healthCheck();
@@ -69,7 +76,7 @@ describe("Slack (live)", () => {
     if (skip) { console.log("SKIP: SLACK_BOT_TOKEN not set"); return; }
 
     const adapter = new SlackNotificationAdapter(env("SLACK_BOT_TOKEN"));
-    const channel = env("SLACK_NOTIFY_CHANNEL");
+    const channel = hasEnv('SLACK_NOTIFY_CHANNEL_TEST') ? env("SLACK_NOTIFY_CHANNEL_TEST") : env("SLACK_NOTIFY_CHANNEL");
 
     const result = await adapter.postNotification(channel, {
       task_id: "e2e-test-task",
@@ -240,7 +247,7 @@ describe("Jira (live)", () => {
       env("JIRA_USER_EMAIL"),
       env("JIRA_BASE_URL"),
     );
-    const project = env("JIRA_PROJECT_KEY");
+    const project =hasEnv("JIRA_PROJECT_KEY_TEST")? env("JIRA_PROJECT_KEY_TEST") : env("JIRA_PROJECT_KEY") ;
 
     // Create
     const createResult = await adapter.createTask(

@@ -1,0 +1,16 @@
+{
+  "id": "747c1424-747d-4735-aeb6-bfc9bc6f7103",
+  "task_id": "design-l1",
+  "workflow_id": "default-sdd",
+  "status": "RESOLVED",
+  "resolution": "approved",
+  "notes": "Approved — L1 architecture accepted as-is.",
+  "resolved_at": "2026-03-15T00:00:00.000Z",
+  "reason": "HIL triggered for task 'design-l1'",
+  "context": {
+    "task_description": "Produce an L1 architecture document covering system context, components,\nand key design decisions. Publish to Confluence.\n",
+    "risk_tier": "T0",
+    "agent": "architect"
+  },
+  "created_at": "2026-03-15T05:36:53.499Z"
+}

@@ -1,0 +1,43 @@
+version: "1"
+
+# ── Adapter: claude_code spawns Claude Code for each task ────────────────────
+adapter:
+  type: claude_code
+
+# ── Engine ───────────────────────────────────────────────────────────────────
+engine:
+  max_concurrent_tasks: 3
+  cost_budget_per_run_usd: 10.00
+
+# ── Collaboration: Slack + Confluence + Jira + GitHub ────────────────────────
+collaboration:
+  enabled: true
+  adapters:
+    notification:  slack
+    document:      confluence
+    task_tracking: jira
+    code_review:   github
+
+  # Slack channel for HIL approval prompts and status pings
+  slack:
+    notify_channel: "${SLACK_NOTIFY_CHANNEL}"
+
+  # Confluence — where design docs and review reports are published
+  confluence:
+    space_key: "${CONFLUENCE_SPACE_KEY}"
+    parent_page_title: "ai-sdd Artifacts"
+
+  # Jira — tasks synced here; one Jira issue per workflow task
+  jira:
+    project_key: "${JIRA_PROJECT_KEY}"
+
+  # GitHub — PRs opened/reviewed here for implement tasks
+  github:
+    owner: "${GITHUB_REPO_OWNER}"
+    repo:  "${GITHUB_REPO_NAME}"
+    base_branch: main
+
+# ── Overlays ─────────────────────────────────────────────────────────────────
+overlays:
+  hil:
+    enabled: true

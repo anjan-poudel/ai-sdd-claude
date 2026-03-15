@@ -25,6 +25,11 @@ This document details the L2 component design for the async/hybrid workflow coll
 | 15 | MockDocumentAdapter | Testing | 1 | -- |
 | 16 | MockTaskTrackingAdapter | Testing | 1 | -- |
 | 17 | MockCodeReviewAdapter | Testing | 1 | -- |
+| 18 | NotificationChannel | Adapter (interface) | 1 | FR-004, NFR-006 |
+| 19 | SlackNotificationChannel | Adapter (impl) | 1 | FR-004, FR-005 |
+| 20 | MockNotificationChannel | Testing | 1 | -- |
+| 21 | ConfluenceSyncManager | Core Engine | 1 | FR-006, FR-007 |
+| 22 | JiraHierarchySync | Core Engine | 1 | FR-008, FR-009, FR-010 |
 
 ## Adapter Interfaces
 
@@ -422,7 +427,7 @@ const NON_SYNC_FIELDS = ["status", "run_id", "attempt", "timestamps", "collabora
 
 ### 4. CollaborationAdapterFactory
 
-**Responsibility:** Instantiates and caches adapter instances from configuration. Validates required env vars at creation time (fail-fast). Provides a single entry point for all adapter resolution.
+**Responsibility:** Instantiates and caches adapter instances from configuration. Validates required env vars at creation time (fail-fast). Provides a single entry point for all adapter resolution, including the `NotificationChannel` abstraction layer.
 
 **Key Types:**
 
@@ -441,9 +446,12 @@ interface CollaborationAdapterFactory {
   getDocumentAdapter(): DocumentAdapter;
   getTaskTrackingAdapter(): TaskTrackingAdapter;
   getCodeReviewAdapter(): CodeReviewAdapter;
+  getNotificationChannel(channel: string, mentionConfig?: MentionConfig): NotificationChannel;
   validateCredentials(): Result<void>;  // fail-fast check at startup
 }
 ```
+
+`getNotificationChannel` wraps the underlying `NotificationAdapter` in a `SlackNotificationChannel` (or `MockNotificationChannel` when `adapters.notification = "mock"`). This is the preferred entry point for all workflow-lifecycle notification publishing, as it handles `@mention` resolution and rich formatting internally.
 
 **Env Var Validation Matrix:**
 
@@ -670,6 +678,187 @@ Unsupported constructs (footnotes, raw HTML) pass through as escaped text with a
 | `getPipelineStatus` | `GET /repos/{owner}/{repo}/actions/runs/{id}` |
 | `healthCheck` | `GET /user` |
 
+---
+
+## New Components (Implemented in Collaboration Layer Activation)
+
+### 18. NotificationChannel (interface)
+
+**File:** `src/collaboration/adapters/notification-channel.ts`
+
+**Responsibility:** Provider-agnostic abstraction for publishing workflow-lifecycle activity messages. Sits above `NotificationAdapter` — callers publish structured `ActivityMessage` objects; the channel implementation handles vendor-specific formatting, mention resolution, and retry. Enables swapping Slack for Teams or any other provider without changing call sites.
+
+```typescript
+// src/collaboration/adapters/notification-channel.ts
+
+type ActivityEvent =
+  | "workflow_started" | "workflow_completed"
+  | "task_started" | "task_completed" | "task_failed" | "task_needs_rework"
+  | "hil_requested" | "hil_approved" | "hil_rejected"
+  | "document_published" | "document_updated"
+  | "sync_completed"
+  | "async_approval_requested" | "approval_received" | "rejection_received";
+
+interface ActivityMessage {
+  event: ActivityEvent;
+  workflow_id: string;
+  task_id?: string;
+  title: string;
+  body: string;
+  artifact_url?: string;
+  mentions?: string[];   // role keys (e.g., "pe") or raw Slack user IDs (e.g., "U01234")
+}
+
+interface MentionConfig {
+  ba?: string[];
+  pe?: string[];
+  le?: string[];
+  dev?: string[];
+  reviewer?: string[];
+  [role: string]: string[] | undefined;
+}
+
+interface NotificationChannel {
+  readonly provider: string;
+  publish(message: ActivityMessage): Promise<Result<void>>;
+  healthCheck(): Promise<Result<void>>;
+}
+```
+
+---
+
+### 19. SlackNotificationChannel (impl)
+
+**File:** `src/collaboration/impl/slack-notification-channel.ts`
+
+**Responsibility:** Implements `NotificationChannel` for Slack. Wraps `SlackNotificationAdapter` and adds:
+- Event-type → emoji prefix mapping (`:rocket:` for `workflow_started`, etc.)
+- Bold title + body formatting for Slack's mrkdwn syntax
+- `@mention` resolution: role keys from `MentionConfig` expand to all configured Slack user IDs; bare Slack-style IDs (`U…` / `W…`) are wrapped as `<@USER_ID>`; other handles are prefixed with `@`
+
+**Emoji Map (partial):**
+```
+workflow_started  → :rocket:
+task_completed    → :heavy_check_mark:
+task_failed       → :x:
+hil_requested     → :pause_button:
+document_published → :page_facing_up:
+async_approval_requested → :mailbox:
+```
+
+---
+
+### 20. MockNotificationChannel (testing)
+
+**File:** `src/collaboration/impl/mock-notification-channel.ts`
+
+**Responsibility:** In-memory implementation of `NotificationChannel` for use in unit and integration tests. Records all `publish()` calls for assertion. Supports configurable error injection.
+
+```typescript
+interface MockChannelCall {
+  channel: string;
+  message: ActivityMessage;
+}
+
+class MockNotificationChannel implements NotificationChannel {
+  readonly provider = "mock";
+  calls: MockChannelCall[];
+  callsFor(event: ActivityEvent): MockChannelCall[];
+  reset(): void;
+  injectPublishError(error: AdapterError): void;
+}
+```
+
+---
+
+### 21. ConfluenceSyncManager
+
+**File:** `src/collaboration/core/confluence-sync-manager.ts`
+
+**Responsibility:** Manages the full document lifecycle for Confluence — create on first publish, update on subsequent publishes. Keeps a `task_id → PageRef` mapping persisted atomically to the session directory. Also manages a workflow-level index page aggregating all task document links.
+
+**Key Operations:**
+- `publishDocument(taskId, title, contentMd)` — createPage if no mapping, updatePage if mapping exists
+- `publishWorkflowIndex(workflowName, taskSummaries[])` — creates/updates a single index page; mapping key is `__workflow_index__<workflowName>`
+- `loadMappings(filePath)` / `saveMappings(filePath)` — atomic persistence (`schema_version: "1"` JSON)
+- `getPageRef(taskId)` — lookup without network call
+
+**Mapping File Location:** `.ai-sdd/sessions/<session>/confluence-mappings.json`
+
+**Conflict Handling:** Uses `PageRef.version` from the adapter response; if version mismatch on update, the adapter handles retry (CONFLICT code is retryable).
+
+---
+
+### 22. JiraHierarchySync
+
+**File:** `src/collaboration/core/jira-hierarchy-sync.ts`
+
+**Responsibility:** Manages the Jira Epic/Story/Subtask hierarchy for a workflow. Sits above `AsCodeSyncEngine` (which does flat hash-based sync) with a higher-level orchestration layer that understands task grouping.
+
+**Hierarchy Strategy:**
+- 1 Epic per workflow
+- Top-level tasks (no `group` field, not depending on a shared parent) → Story under the Epic
+- Group-member tasks (`group` field, or tasks sharing a single `depends_on` with 2+ other tasks) → Subtask under the Story for their group
+- Multi-level nesting beyond Story/Subtask is flattened; further nesting adds Jira issue links
+
+**Default Status Map:**
+```typescript
+const DEFAULT_STATUS_MAP: Record<string, string> = {
+  PENDING:            "To Do",
+  RUNNING:            "In Progress",
+  HIL_PENDING:        "In Review",
+  AWAITING_APPROVAL:  "In Review",
+  APPROVED:           "In Review",
+  DOING:              "In Progress",
+  NEEDS_REWORK:       "In Progress",
+  COMPLETED:          "Done",
+  FAILED:             "Blocked",
+  CANCELLED:          "Cancelled",
+};
+```
+
+**Key Operations:**
+- `ensureEpic(adapter, workflowName, description)` — idempotent; creates Epic on first call, returns cached ref thereafter
+- `syncWorkflow(adapter, workflowConfig, epicRef)` — creates Stories + Subtasks for all workflow tasks
+- `transitionForStatus(adapter, taskId, taskStatus)` — looks up mapping, calls `adapter.transitionTask`
+- `loadMappings(filePath)` / `saveMappings(filePath)` / `getMappings()` — atomic persistence
+
+**Mapping File Location:** `.ai-sdd/sessions/<session>/jira-hierarchy-mappings.json`
+
+---
+
+### Engine Hook Extensions
+
+**File:** `src/core/hooks.ts` — extended `HookEvent` type and added convenience methods
+
+Four new hook events added to `HookRegistry`:
+
+| Hook | Fires | Extra context |
+|------|-------|---------------|
+| `on_task_start` | Before `task.started` emitter, before overlay chain | -- |
+| `on_workflow_start` | After `workflow.started` emitter, before first task | -- |
+| `on_workflow_end` | After `workflow.completed` emitter, after all tasks | `completed`, `failed`, `total_cost_usd` |
+| `on_hil_requested` | When task enters `HIL_PENDING` | `hil_id`, `feedback` |
+
+The `on_hil_requested` hook is fired with `void` (non-blocking) so the notification does not delay the HIL resolution polling loop.
+
+---
+
+### Collaboration Wiring in run.ts
+
+The collaboration subsystem is wired entirely in `src/cli/commands/run.ts` (not in `engine.ts`). When `collaboration.enabled = true`, the following setup runs before the engine starts:
+
+1. Build `CollaborationAdapterFactory`, call `validateCredentials()`
+2. Create `SlackNotificationChannel` via `factory.getNotificationChannel(slackChannel, mentionConfig)` where `mentionConfig` comes from `config.collaboration.slack.mentions`
+3. Create `ConfluenceSyncManager`, call `loadMappings(confluenceMappingsPath)`
+4. Create `JiraHierarchySync`, call `loadMappings(jiraMappingsPath)`, then `ensureEpic + syncWorkflow` pre-run
+5. Register hooks on the engine:
+   - `onWorkflowStart` → post Slack "Workflow started" message
+   - `onTaskStart` → post Slack "Task started" + transition Jira issue to "In Progress"
+   - `onPostTask` → read task output, publish/update Confluence page, post Slack "Task completed" with Confluence URL + next-agent mentions, transition Jira to "Done"
+   - `onHilRequested` → post Slack HIL notification with approver mentions
+   - `onWorkflowEnd` → post Slack workflow summary, publish Confluence index page, save all mappings
+
 ## Key Data Flows
 
 ### 1. Async Task Approval Flow
@@ -761,10 +950,16 @@ collaboration:
   enabled: true                         # master switch; false disables all
 
   slack:
-    channel: "#ai-sdd-workflow"
-    bot_mention: "@ai-sdd"             # prefix for signal parsing
+    notify_channel: ai-sdd              # channel for workflow activity messages
+    bot_mention: "@ai-sdd"             # prefix for approval signal parsing
     poll_interval_seconds: 5           # NFR-004: <=10s
     request_timeout_ms: 3000
+    mentions:                          # role → Slack user IDs for @mention resolution
+      ba: []                           # fill with actual Slack user IDs (e.g., ["U01ABCDEF"])
+      pe: []
+      le: []
+      dev: []
+      reviewer: []
 
   confluence:
     space_key: "PROJ"
@@ -822,10 +1017,11 @@ tasks:
 const CollaborationConfigSchema = z.object({
   enabled: z.boolean().default(false),
   slack: z.object({
-    channel: z.string(),
+    notify_channel: z.string().optional(),
     bot_mention: z.string().default("@ai-sdd"),
     poll_interval_seconds: z.number().min(1).max(60).default(5),
     request_timeout_ms: z.number().min(500).max(30000).default(3000),
+    mentions: z.record(z.array(z.string())).optional(),  // role → Slack user IDs
   }).optional(),
   confluence: z.object({
     space_key: z.string(),
@@ -952,6 +1148,7 @@ tests/collaboration/
     code-review-adapter.suite.ts
   adapters/impl/
     slack.test.ts                    -- Slack-specific tests (polling, parsing)
+    slack-notification-channel.test.ts  -- ActivityMessage→Slack format, @mention resolution, emoji map
     confluence.test.ts               -- XHTML rendering edge cases
     jira.test.ts                     -- multi-hop transitions, ADF
     bitbucket.test.ts                -- merge strategies, pipeline trigger
@@ -962,11 +1159,16 @@ tests/collaboration/
     approval-manager.test.ts         -- dedup, thresholds, veto
     sync-engine.test.ts              -- hash, create/update/orphan
     adapter-factory.test.ts          -- env var validation, caching
+    confluence-sync-manager.test.ts  -- create vs update branching, mapping persistence, index page
+    jira-hierarchy-sync.test.ts      -- epic creation, story/subtask hierarchy, status mapping
     event-bus.test.ts
   integration/
-    async-approval-flow.test.ts      -- end-to-end with mock adapters
+    async-approval-flow.test.ts      -- end-to-end async approval with mock adapters
+    collab-wiring.test.ts            -- hook firing order, MockNotificationChannel assertions,
+                                     --   ConfluenceSyncManager + JiraHierarchySync called from hooks
     document-review-cycle.test.ts
     jira-sync-roundtrip.test.ts
+    e2e-live.test.ts                 -- live adapter tests (requires real env vars)
     cli-sync-command.test.ts         -- CLI integration test (dev standard #7)
 ```
 

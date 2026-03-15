@@ -187,3 +187,12 @@ export interface CollaborationAdaptersConfig {
   task_tracking: "jira" | "github" | "mock";
   code_review: "bitbucket" | "github" | "mock";
 }
+
+// ─── NotificationChannel re-exports ──────────────────────────────────────────
+
+export type {
+  ActivityEvent,
+  ActivityMessage,
+  NotificationChannel,
+  MentionConfig,
+} from "./adapters/notification-channel.ts";

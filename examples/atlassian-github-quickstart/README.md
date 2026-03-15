@@ -39,9 +39,9 @@ cp .env.example .env
 # From this directory:
 ai-sdd init --tool claude_code
 
-# Copy the config files into .ai-sdd/
+# Copy the config files into place
 cp ai-sdd.yaml .ai-sdd/ai-sdd.yaml
-cp workflow.yaml .ai-sdd/workflows/default-sdd.yaml
+cp workflow.yaml specs/workflow.yaml
 ```
 
 ---

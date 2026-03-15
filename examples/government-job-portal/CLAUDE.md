@@ -1,4 +1,4 @@
-# CLAUDE.md
+new # CLAUDE.md
 
 ## ai-sdd: Specification-Driven Development
 

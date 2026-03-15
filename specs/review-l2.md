@@ -1,82 +1,111 @@
-# Review Report — L2 Component Design (Remote Overlay Abstraction)
+# GovJobs Portal — L2 Component Design Review
 
 ## Summary
 
-**Artifact reviewed**: `specs/remote-overlay-abstraction/component-design-l2.md`
-**Reviewer task**: `review-l2`
-**Review iteration**: 2 (re-review after rework)
-**Date**: 2026-03-08
-**Inputs examined**: component-design-l2.md (reworked, PRIMARY), specs/review-l2.md iteration 1 (previous NO_GO), specs/remote-overlay-abstraction/FR/FR-008-remote-failure-handling.md
-
-The rework correctly resolves the single blocking issue from iteration 1. The error handling table for Tier 1 transport errors now reads for the `"skip"` row: "Return `{ verdict: "PASS" }`; emit `overlay.remote.fallback` only (no `overlay.remote.failed`)" — matching the `invoke` algorithm in Component F and the FR-008 acceptance criteria verbatim.
-
-No new inconsistencies were introduced by the rework. All previously-passing criteria remain intact. The two non-blocking findings from iteration 1 are preserved as L3 recommendations and do not block GO.
+The L2 component design is thorough and implementable. All twelve MongoDB collections are specified with indexes and validation. The ES mapping, BullMQ queue design, scraper plugin interface, auth flows, API contracts, and environment variables are complete. Both L1 advisory items (A1 scheduler leader election, A2 expiry reminder cadence) are explicitly resolved with correct mechanisms. One blocker was found: FCM push token storage is not modelled in the `users` collection schema, leaving the notification worker without a defined location to read or remove tokens.
 
 ## Decision
 
-**GO**
+**Decision:** NO_GO
 
-All criteria met. The `skip` policy event contradiction (Finding 1) is resolved. The L2 component design is approved for L3 task planning.
+## Evidence Checklist
 
-## Findings
+| Criterion | Result | Notes |
+|---|---|---|
+| A1 (scheduler leader election) resolved | PASS | Section 1.1: Redis `SET NX EX` with UUID lock value, 90s TTL, 30s heartbeat via `PEXPIRE`, graceful release on shutdown, crash recovery via TTL expiry. All parameters are configurable env vars. |
+| A2 (expiry reminder cadence) resolved | PASS | Section 6.4: daily cadence replaced with 6-hour BullMQ cron (`EXPIRY_REMINDER_CRON`); deduplication key scheme prevents double-sends; window configurable via `EXPIRY_REMINDER_MIN_HOURS`/`EXPIRY_REMINDER_MAX_HOURS`. |
+| All 12 MongoDB collections with indexes and validation | PASS | Sections 2.1–2.12 cover: `jobs`, `sources`, `users`, `refresh_tokens`, `saved_jobs`, `saved_searches`, `alerts`, `notifications`, `content`, `agency_reviews`, `es_schema_versions`, `scraper_runs`. Each has field validation and index definitions. |
+| ES index mapping complete with versioning strategy | PASS | Section 3: full mapping JSON, custom analysers (`australian_english`, `classification_keyword`, `agency_autocomplete`), `jobs_v{N}` + alias strategy, non-breaking vs breaking migration distinction, atomic alias swap, zero-downtime reindex. |
+| BullMQ queue design with retry/DLQ for all queues | PASS | Section 4: six queues defined (`scrape-queue`, `es-sync-queue`, `notification-queue`, `expiry-reminder-queue`, `vector-queue`, `deletion-queue`) with per-queue retry attempts, exponential backoff delays, dead-letter TTL, and configurable concurrency. DLQ inspector cron documented in Section 4.7. |
+| Scraper plugin interface is implementable | PASS | Section 5: `ScraperPlugin` interface with `fetchJobs` and `validateConfig`; full `ScraperPluginContext` (logger, rateLimiter, robotsChecker, httpClient, browser); `RateLimiter`, `RobotsChecker`, `StructuredLogger` interfaces defined. Built-in plugin registry listed. |
+| Auth flows fully specified | PASS | Section 7: registration (7.1), email/password login (7.2), OAuth2 with CSRF nonce (7.3), token refresh with reuse detection (7.4), JWT key management (7.5), admin elevation (7.6). All failure modes and return types specified. |
+| API request/response types complete for 5 key endpoints | PASS | Section 9: `GET /api/jobs/search` (9.1), `GET /api/jobs/:id` (9.2), `POST /api/auth/login` (9.3), `GET+POST /api/users/me/alerts` (9.4), `POST /api/auth/refresh` (9.5). All include request types, response types, and error response enumerations. |
+| All env vars documented with types and defaults | PASS | Section 10: 7 subsections covering all services. Each variable has type, default (or `required`), and description. Zod startup validation documented. Secrets marked `[SECRET]` and loaded via Secrets Manager. |
+| No `any` types in TypeScript interfaces | PASS | All error types use discriminated unions. `pluginConfig: Record<string, unknown>` and `metadata: Record<string, string>` are the widest types used; neither is `any`. No `any` type found in any interface. |
+| Notification deduplication prevents duplicate sends | PASS | Section 6.3: unique MongoDB index on `deduplicationKey` in `notifications` collection; four key formats defined (alert email/push, expiry email/push); duplicate-key error on insert treated as successful dedup (not failure). |
+| Vector search latency budget sums correctly to p95 SLA | PASS | Section 8.2: 100ms embedding + 100ms vector DB + 200ms ES enrichment + 100ms overhead = 500ms total, matching NFR-001 p95 target. Vector DB timeout fallback to keyword search also documented. |
+| FCM token storage modelled in data schema | FAIL | `UserDocument` (Section 2.3) has `notificationPreferences` but no `pushTokens`/`fcmTokens` field. Appendix B references removing a token from `users.pushToken` on `FCM_TOKEN_INVALID`, but this field does not exist in the schema. The notification worker has no defined location to read or remove FCM tokens. |
 
-### Finding 1 — RESOLVED: Internal contradiction on `skip` policy event emission
+## Issues
 
-**Previous state (iteration 1)**: The error handling table in "Two-tier failure model (McpOverlayProvider)" listed `"skip"` → `emit overlay.remote.failed + overlay.remote.fallback`, contradicting the `invoke` algorithm (Component F, step 6) and FR-008 AC (Scenario: skip policy silently returns PASS with no `overlay.remote.failed` event).
+### BLOCKER — B1: FCM push token storage missing from `users` schema
 
-**Current state (iteration 2)**: The error handling table `"skip"` row now reads: "Return `{ verdict: "PASS" }`; emit `overlay.remote.fallback` only (no `overlay.remote.failed`)". This is consistent with:
+**Location:** Section 2.3 (`users` collection), Appendix B (deregistration paths)
 
-1. Component F `invoke` algorithm, step 6: `"skip": emit overlay.remote.fallback; return { verdict: "PASS" }` — no `overlay.remote.failed` emitted.
-2. FR-008 AC (Scenario: Transport timeout with failure_policy "skip"): "no overlay.remote.failed event is emitted."
+**Problem:** The `UserDocument` interface defines `notificationPreferences` (a preferences flags object) but contains no field for storing FCM device tokens. Appendix B states: "FCM token invalidated: `FCM_TOKEN_INVALID` error → Notification Worker removes FCM token from `users.pushToken` (PATCH `fcmTokens` array)." The field `pushToken` / `fcmTokens` is referenced but not defined in the schema.
 
-The `invoke` algorithm and the error handling table are now in agreement. The FR-008 `skip` AC is fully satisfied.
+Without this field:
+- The notification worker has no defined location to fetch FCM tokens when dispatching push notifications (FR-003).
+- The `FCM_TOKEN_INVALID` cleanup path cannot be implemented.
+- It is unknown whether a user can register multiple devices (one token vs array).
 
-**Status**: RESOLVED — no longer blocking.
+**Required fix:** Add a `fcmTokens: FcmToken[]` field to `UserDocument` with a sub-document type:
 
-### Finding 2 — NON-BLOCKING (carried from iteration 1): `overlay.remote.invoked` event description ambiguity
+```typescript
+interface FcmToken {
+  token: string;       // FCM registration token
+  deviceId: string;    // client-generated stable device identifier
+  registeredAt: Date;
+  lastUsedAt: Date | null;
+}
+```
 
-Not required to be fixed for GO. The `invoke` algorithm in Component F remains the authoritative specification. Carry forward to L3.
+Add the corresponding index: `{ "fcmTokens.token": 1 }` (sparse) for fast single-token lookup on invalidation. Clarify maximum tokens per user (recommended: 10, for multi-device support).
 
-### Finding 3 — NON-BLOCKING (carried from iteration 1): `McpSchemaError` JSDoc gap
+---
 
-Not required to be fixed for GO. Carry forward to L3 implementor task for `mcp-client.ts`.
+### Advisory — A1: Email verification token stored with bcrypt (inconsistency with refresh token hashing)
 
-## Traceability Matrix
+**Location:** Section 2.3, Section 7.1
 
-Changes from iteration 1 are noted. All other rows are unchanged.
+**Problem:** The email verification token (32-byte random hex) is hashed with bcrypt (Section 7.1, step 5: "Hash verify token (bcrypt for storage)"). Refresh tokens (also 32-byte random hex) are hashed with sha256 (Section 7.4, step 1: "sha256(rawToken)"). Bcrypt is designed for password stretching (slow key derivation), not for hashing random tokens — it introduces unnecessary latency (~100ms) and is semantically wrong here. A random 32-byte token has enough entropy that sha256 is sufficient and correct.
 
-| FR / NFR | L2 Component(s) | Status |
-|-----------|----------------|--------|
-| FR-001: OverlayProvider interface | Component A (overlay-protocol.ts), Component B (LocalOverlayProvider), Component F (McpOverlayProvider) | PASS |
-| FR-002: OverlayDecision contract + verdict mapping | Component A (OverlayInvokeOutputSchema, OverlayVerdict), Component B (mapping tables) | PASS |
-| FR-003: McpClientWrapper + overlay.invoke protocol | Component E (mcp-client.ts) — three error classes, connect/disconnect/callTool contracts, timeout via Promise.race | PASS |
-| FR-004: Provider chain construction and composition | Component C (registry.ts, buildProviderChain), Component D (provider-chain.ts, mergeContextUpdate), Component K (composition-rules.ts) | PASS |
-| FR-005: Config schema (overlay_backends, remote_overlays, governance) | Component G (remote-overlay-schema.ts) — ZodObject schemas, refine for tool/mcp, defaults, parseRemoteOverlayConfig | PASS |
-| FR-006: CANCELLED task state + VALID_TRANSITIONS | Component H (src/types/index.ts) — all 7 transition rows specified, terminal semantics, downstream behavior | PASS |
-| FR-007: Engine verdict mapping + HIL resume | Component I (engine.ts) — applyPreDecision/applyPostDecision tables, exhaustive switch, evidence persistence, HIL resume skip | PASS |
-| FR-008: Remote failure handling (two-tier model) | Component F error handling table corrected: skip emits `overlay.remote.fallback` only. Invoke algorithm and table are now consistent. FR-008 skip AC satisfied. | PASS (was FAIL in iteration 1) |
-| FR-009: Observability events (six event types) | Component J — EventType additions, payload fields, duration_ms, log levels, secret redaction | PASS |
-| NFR-001: Performance bounds | McpClientWrapper timeout_ms (default 5000, Promise.race), phase-skip in provider-chain.ts, registry build once at startup | PASS |
-| NFR-002: Reliability / atomic state | Chain runner exception → FAIL (no propagation), CANCELLED atomic tmp+rename, VALID_TRANSITIONS enforcement | PASS |
-| NFR-003: Security (no-mutation, schema guard, secret redaction) | mergeContextUpdate IDENTITY_FIELDS, OverlayInvokeOutputSchema Zod guard, sanitizer.ts in emitter.emit() | PASS |
-| NFR-004: Backward compatibility | LocalOverlayProvider shim (zero changes to existing overlays), config absent = undefined return, 177-test gate | PASS |
+**Recommendation:** Use sha256 consistently for all random token hashing (email verification, refresh tokens). Reserve bcrypt/argon2id for password hashing only.
 
-**L1 review non-blocking suggestions — disposition** (unchanged from iteration 1):
-- Suggestion 1 (connect/disconnect error path guarantees): Fully addressed in Component E.
-- Suggestion 2 (mergeContextUpdate identity stripping via Zod transform): Addressed using `Set`-based `IDENTITY_FIELDS` constant. Rationale is documented and technically correct.
+---
 
-**L1 architecture consistency**: The L2 chain order (HIL → Remote → Policy Gate → Review/Paired → Confidence) matches L1. The `OverlayProvider` interface, ADR-001 through ADR-005, and engine-as-single-enforcement-point are all preserved.
+### Advisory — A2: `RobotsChecker.isAllowed()` return type union is awkward
 
-## Recommendations for L3 (plan-tasks)
+**Location:** Section 5.1, `RobotsChecker` interface
 
-1. **Test for skip policy event emission** (highest priority, now guarding the resolved Finding 1): A dedicated test that uses `failure_policy: "skip"`, triggers a transport error, and asserts (a) verdict is PASS, (b) `overlay.remote.fallback` IS emitted, (c) `overlay.remote.failed` is NOT emitted.
+**Problem:** `isAllowed(url, userAgent): Promise<boolean | ScraperWorkerError>` requires callers to type-narrow a primitive `boolean` against an error object. Checking `typeof result === "boolean"` is not standard TypeScript discriminated union practice. Consider `Promise<{ allowed: boolean } | ScraperWorkerError>` or returning `Promise<boolean>` and throwing `ScraperWorkerError` on fetch failure.
 
-2. **External MCP SDK fixture** (Development Standards §4): The `tests/overlays/mcp/mcp-client.test.ts` must include a fixture of the actual `@modelcontextprotocol/sdk@^1.0.4` `CallToolResult` structure. The L3 task breakdown should include a subtask to capture and commit this fixture before implementing `McpClientWrapper`.
+**Impact:** Advisory only — the interface is implementable as written.
 
-3. **`McpSchemaError` JSDoc** (Finding 3): The L3 implementor task for `mcp-client.ts` should add `/** Reserved for future use. Not raised in this release. */` to the class declaration.
+---
 
-4. **Chain-builder integration test** (Development Standards §2): Component C (`buildProviderChain`) wires into the Engine constructor. There must be at least one test verifying `buildProviderChain` is called at engine startup and the chain is passed to `runPreProviderChain`.
+### Advisory — A3: `deletion-queue` consumer runs inside the `api` service
 
-5. **`ai-sdd status` CANCELLED display** (Development Standards §7): FR-006 AC requires CANCELLED tasks to appear as a separate category. The L3 breakdown should include a CLI integration test for this.
+**Location:** Section 4.1
 
-6. **`overlay_evidence` in `ai-sdd status --json`**: FR-007 requires evidence to be visible in `status --json` output. The L3 engine-integration task should include updating the status command serializer.
+**Problem:** The deletion queue consumer is assigned to the `api` service (worker module), meaning a stateless web server hosts a long-running background worker. This complicates graceful shutdown (worker must drain before process exit), adds memory pressure to the API service, and increases the blast radius of a deletion worker bug on the API.
+
+**Recommendation:** Either create a dedicated `deletion-worker` ECS service, or add a note that the `api` service runs the deletion worker as a background thread with explicit shutdown handling.
+
+---
+
+### Advisory — A4: In-memory alert matching scalability threshold
+
+**Location:** Section 6.2
+
+**Problem:** The full in-memory alert scan (fetching all active alerts for every ingested job) is acknowledged as a scalability concern with a `ALERT_MATCH_INDEX_THRESHOLD` escape hatch (default: 10,000). At 100k users with 10 alerts each, the worst-case is 1M active alerts. The escape hatch exists but its correctness under concurrent ingest load is not described.
+
+**Recommendation:** Explicitly state the MongoDB query and index used when `ALERT_MATCH_USE_INDEXED_QUERY=true`. The current text says "queries MongoDB with a compound filter on `governmentLevel` and `state` first" but the `alerts` collection index section (2.7) only has `{ userId, status }` and `{ status }`. The compound index `{ status, "criteria.governmentLevels" }` mentioned as a future index in 2.7 must be documented as a required pre-condition for enabling `ALERT_MATCH_USE_INDEXED_QUERY=true`.
+
+## Recommendations
+
+For the implementation phase:
+
+1. **Resolve B1 before starting implementation of the notification worker.** FCM token storage must be defined — the push notification delivery path depends on it.
+
+2. **Standardise token hashing to sha256 for all random tokens.** This removes a subtle semantic error and simplifies the implementation.
+
+3. **Implement startup validation (Section 10.8) as the first task.** Zod-based environment validation catches deployment errors early and is a fast win.
+
+4. **The scraper plugin interface (Section 5) is well-designed — follow it strictly.** The injection of `robotsChecker` and `rateLimiter` via `ScraperPluginContext` correctly prevents plugins from bypassing compliance controls.
+
+5. **Use the write alias (`jobs_write`) from day one.** Section 3.1 defines it; ensure the ES Sync Worker writes via `jobs_write` and never directly addresses a versioned index.
+
+6. **The `deletion-queue` worker belongs in a dedicated service.** Even if deferred to a later implementation task, the service boundary decision should be made before deploying to production.
+
+7. **Document the FCM token schema change in the L2 document before implementation begins.** The data model must be the authoritative source of truth.

@@ -25,6 +25,8 @@ import { loadRemoteOverlayConfig } from "../config-loader.ts";
 import { resolveSession, setActiveSession, ensureSessionDirs } from "../../core/session-resolver.ts";
 import { DefaultCollaborationAdapterFactory } from "../../collaboration/core/adapter-factory.ts";
 import { DefaultAsCodeSyncEngine } from "../../collaboration/core/sync-engine.ts";
+import { ConfluenceSyncManager } from "../../collaboration/core/confluence-sync-manager.ts";
+import { JiraHierarchySync } from "../../collaboration/core/jira-hierarchy-sync.ts";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -337,9 +339,9 @@ export function registerRunCommand(program: Command): void {
       );
 
       // ── Collaboration adapter wiring ────────────────────────────────────────
-      // The collaboration section in ai-sdd.yaml declares Slack/Confluence/Jira/GitHub
-      // adapters. Wire them up as post-task / on-failure engine hooks here so they
-      // fire on every natural task completion (not just manual state repairs).
+      // The collaboration section in ai-sdd.yaml activates Slack/Confluence/Jira/GitHub.
+      // Full wiring: notification channel, Confluence sync (create+update), Jira hierarchy
+      // (Epic/Story/Subtask), status transitions, @mentions, and workflow-level hooks.
       const collabConfig = config.collaboration;
       console.debug("[ai-sdd:collab] collaboration config:", JSON.stringify(collabConfig ?? null));
 
@@ -361,111 +363,213 @@ export function registerRunCommand(program: Command): void {
             `[ai-sdd:collab] Credential validation failed — collaboration hooks disabled.\n  ${credResult.error.message}`,
           );
         } else {
-          console.debug("[ai-sdd:collab] credentials OK — registering post-task hooks");
+          console.debug("[ai-sdd:collab] credentials OK — registering collaboration hooks");
 
-          const notifAdapter = collabFactory.getNotificationAdapter();
-          const docAdapter   = collabFactory.getDocumentAdapter();
+          const mentionConfig = collabConfig.slack?.mentions ?? {};
 
-          // Slack notification hook — post every completed task to notify_channel.
+          // ── 1. Notification channel (Slack → NotificationChannel abstraction) ──
           const slackChannel = collabConfig.slack?.notify_channel;
-          if (slackChannel && adaptersCfg.notification === "slack") {
-            engine.hooks.onPostTask("*", async (ctx) => {
-              console.debug(`[ai-sdd:collab] post_task hook fired for ${ctx.task_id} — posting Slack notification`);
-              const notifResult = await notifAdapter.postNotification(slackChannel, {
-                title:   `Task completed: ${ctx.task_id}`,
-                task_id: ctx.task_id,
-                body:    `Status: COMPLETED | Workflow: ${ctx.workflow_id}`,
-              });
-              if (!notifResult.ok) {
-                console.warn(`[ai-sdd:collab] Slack post failed for ${ctx.task_id}: ${notifResult.error.message}`);
-              } else {
-                console.debug(`[ai-sdd:collab] Slack notification sent for ${ctx.task_id} (ts: ${notifResult.value.id})`);
-              }
-            });
+          const notifChannel = slackChannel
+            ? collabFactory.getNotificationChannel(slackChannel, mentionConfig)
+            : null;
 
-            // Also notify on failure.
-            engine.hooks.onFailure("*", async (ctx) => {
-              console.debug(`[ai-sdd:collab] on_failure hook fired for ${ctx.task_id} — posting Slack notification`);
-              const notifResult = await notifAdapter.postNotification(slackChannel, {
-                title:   `Task FAILED: ${ctx.task_id}`,
-                task_id: ctx.task_id,
-                body:    `Error: ${ctx.error?.message ?? "unknown"} | Workflow: ${ctx.workflow_id}`,
-              });
-              if (!notifResult.ok) {
-                console.warn(`[ai-sdd:collab] Slack failure notification failed for ${ctx.task_id}: ${notifResult.error.message}`);
-              }
-            });
-          } else {
-            console.debug(`[ai-sdd:collab] Slack hook skipped — notify_channel: ${String(slackChannel)}, adapter: ${adaptersCfg.notification}`);
-          }
-
-          // Confluence document hook — publish task output as a Confluence page.
+          // ── 2. Confluence sync manager ──────────────────────────────────────
           const confluenceSpaceKey    = collabConfig.confluence?.space_key;
           const confluenceParentTitle = collabConfig.confluence?.parent_page_title ?? "ai-sdd Artifacts";
+          const confluenceMappingsPath = join(session.sessionDir, "confluence-mappings.json");
+          let confluenceSyncMgr: InstanceType<typeof ConfluenceSyncManager> | null = null;
           if (confluenceSpaceKey && adaptersCfg.document === "confluence") {
-            engine.hooks.onPostTask("*", async (ctx) => {
-              console.debug(`[ai-sdd:collab] post_task hook (confluence) fired for ${ctx.task_id}`);
-              const title   = `[ai-sdd] ${ctx.task_id}`;
-              const content = `Task: \`${ctx.task_id}\` | Workflow: ${ctx.workflow_id} | Status: COMPLETED`;
-              const pubResult = await docAdapter.createPage(
-                confluenceSpaceKey,
-                confluenceParentTitle,
-                title,
-                content,
-              );
-              if (!pubResult.ok) {
-                console.warn(`[ai-sdd:collab] Confluence publish failed for ${ctx.task_id}: ${pubResult.error.message}`);
-              } else {
-                console.debug(`[ai-sdd:collab] Confluence page published for ${ctx.task_id}: ${pubResult.value.url}`);
-              }
-            });
-          } else {
-            console.debug(`[ai-sdd:collab] Confluence hook skipped — space_key: ${String(confluenceSpaceKey)}, adapter: ${adaptersCfg.document}`);
+            confluenceSyncMgr = new ConfluenceSyncManager(
+              collabFactory.getDocumentAdapter(),
+              confluenceSpaceKey,
+              confluenceParentTitle,
+            );
+            try {
+              await confluenceSyncMgr.loadMappings(confluenceMappingsPath);
+              console.debug("[ai-sdd:collab] Confluence mappings loaded");
+            } catch (e) {
+              console.warn(`[ai-sdd:collab] Failed to load Confluence mappings: ${String(e)}`);
+            }
           }
 
-          // Jira/GitHub task-tracking sync hook — update issue status on completion.
+          // ── 3. Jira hierarchy sync ──────────────────────────────────────────
           const jiraProjectKey = collabConfig.jira?.project_key;
-          if (jiraProjectKey && (adaptersCfg.task_tracking === "jira" || adaptersCfg.task_tracking === "github")) {
-            const syncEng        = new DefaultAsCodeSyncEngine(jiraProjectKey);
-            const trackerAdapter = collabFactory.getTaskTrackingAdapter();
-            // Pre-run sync: push all workflow tasks to the tracker (creates missing issues).
-            console.debug("[ai-sdd:collab] running pre-run task-tracking sync");
+          const jiraMappingsPath = join(session.sessionDir, "jira-hierarchy-mappings.json");
+          let jiraHierarchy: InstanceType<typeof JiraHierarchySync> | null = null;
+          let trackerAdapter = adaptersCfg.task_tracking !== "mock"
+            ? collabFactory.getTaskTrackingAdapter()
+            : null;
+          if (jiraProjectKey && trackerAdapter) {
+            jiraHierarchy = new JiraHierarchySync(jiraProjectKey);
             try {
-              const syncReport = await syncEng.sync(workflow, trackerAdapter);
-              console.debug(
-                `[ai-sdd:collab] pre-run sync complete — created: ${syncReport.created}, updated: ${syncReport.updated}, unchanged: ${syncReport.unchanged}, errors: ${syncReport.errors.length}`,
+              await jiraHierarchy.loadMappings(jiraMappingsPath);
+              console.debug("[ai-sdd:collab] Jira hierarchy mappings loaded");
+            } catch (e) {
+              console.warn(`[ai-sdd:collab] Failed to load Jira mappings: ${String(e)}`);
+            }
+            // Pre-run: ensure Epic + Stories/Subtasks exist in Jira
+            try {
+              const epicRef = await jiraHierarchy.ensureEpic(
+                trackerAdapter,
+                workflow.config.name,
+                workflow.config.description ?? "",
               );
-              if (syncReport.errors.length > 0) {
-                for (const e of syncReport.errors) {
-                  console.warn(`[ai-sdd:collab] sync error for ${e.task_id}: ${e.error.message}`);
+              const syncResult = await jiraHierarchy.syncWorkflow(trackerAdapter, workflow.config, epicRef);
+              console.debug(
+                `[ai-sdd:collab] Jira pre-run sync — created: ${syncResult.created}, skipped: ${syncResult.skipped}, errors: ${syncResult.errors.length}`,
+              );
+              if (syncResult.errors.length > 0) {
+                for (const e of syncResult.errors) {
+                  console.warn(`[ai-sdd:collab] Jira sync error for ${e.task_id}: ${e.error.message}`);
                 }
               }
+              await jiraHierarchy.saveMappings(jiraMappingsPath);
             } catch (e) {
-              console.warn(`[ai-sdd:collab] pre-run sync threw: ${String(e)}`);
+              console.warn(`[ai-sdd:collab] Jira pre-run sync failed: ${String(e)}`);
+              jiraHierarchy = null; // disable on error to avoid partial state
+            }
+          }
+
+          // ── Engine hooks ────────────────────────────────────────────────────
+
+          // on_workflow_start: publish workflow started notification
+          engine.hooks.onWorkflowStart(async (ctx) => {
+            if (!notifChannel) return;
+            const taskIds = Object.keys(workflow.config.tasks);
+            await notifChannel.publish({
+              event: "workflow_started",
+              workflow_id: ctx.workflow_id,
+              title: `Workflow started: ${ctx.workflow_id}`,
+              body: `Tasks: ${taskIds.join(", ")}`,
+            }).catch(e => console.warn(`[ai-sdd:collab] workflow_start notification failed: ${String(e)}`));
+          });
+
+          // on_task_start: Slack notification + Jira transition to In Progress
+          engine.hooks.onTaskStart("*", async (ctx) => {
+            if (jiraHierarchy && trackerAdapter) {
+              await jiraHierarchy.transitionForStatus(trackerAdapter, ctx.task_id, "RUNNING");
+            }
+            if (!notifChannel) return;
+            await notifChannel.publish({
+              event: "task_started",
+              workflow_id: ctx.workflow_id,
+              task_id: ctx.task_id,
+              title: `Task started: ${ctx.task_id}`,
+              body: `Workflow: ${ctx.workflow_id}`,
+            }).catch(e => console.warn(`[ai-sdd:collab] task_start notification failed for ${ctx.task_id}: ${String(e)}`));
+          });
+
+          // on_post_task (COMPLETED): Confluence publish/update + Slack + Jira Done
+          engine.hooks.onPostTask("*", async (ctx) => {
+            // Read task output content
+            const fallbackContent = `Task: \`${ctx.task_id}\` | Workflow: ${ctx.workflow_id} | Status: COMPLETED`;
+            let content = fallbackContent;
+            const firstOutput = ctx.task_state?.outputs?.[0]?.path;
+            if (firstOutput) {
+              const absPath = join(projectPath, firstOutput);
+              try {
+                content = readFileSync(absPath, "utf-8");
+              } catch {
+                console.debug(`[ai-sdd:collab] output file not readable (${absPath}), using fallback`);
+              }
             }
 
-            // Post-task hook: transition the corresponding issue to Done.
-            engine.hooks.onPostTask("*", async (ctx) => {
-              console.debug(`[ai-sdd:collab] post_task hook (task-tracking) fired for ${ctx.task_id}`);
-              const mappings = syncEng.getMappings();
-              const mapping  = mappings.find(m => m.task_id === ctx.task_id);
-              if (!mapping) {
-                console.debug(`[ai-sdd:collab] no tracker mapping found for ${ctx.task_id} — skipping transition`);
-                return;
-              }
-              const transResult = await trackerAdapter.transitionTask(
-                { provider: trackerAdapter.provider, key: mapping.issue_key, id: mapping.issue_key, url: "" },
-                "Done",
-              );
-              if (!transResult.ok) {
-                console.warn(`[ai-sdd:collab] tracker transition failed for ${ctx.task_id} (${mapping.issue_key}): ${transResult.error.message}`);
+            // Publish to Confluence (create or update)
+            let pageUrl: string | undefined;
+            if (confluenceSyncMgr) {
+              const title = `${workflow.config.name} — ${ctx.task_id}`;
+              const pubResult = await confluenceSyncMgr.publishDocument(ctx.task_id, title, content);
+              if (pubResult.ok) {
+                pageUrl = pubResult.value.url;
+                console.debug(`[ai-sdd:collab] Confluence page for ${ctx.task_id}: ${pageUrl}`);
+                // Persist mappings after each publish
+                await confluenceSyncMgr.saveMappings(confluenceMappingsPath);
               } else {
-                console.debug(`[ai-sdd:collab] tracker issue ${mapping.issue_key} transitioned to Done`);
+                console.warn(`[ai-sdd:collab] Confluence publish failed for ${ctx.task_id}: ${pubResult.error.message}`);
               }
-            });
-          } else {
-            console.debug(`[ai-sdd:collab] task-tracking hook skipped — project_key: ${String(jiraProjectKey)}, adapter: ${adaptersCfg.task_tracking}`);
-          }
+            }
+
+            // Transition Jira to Done
+            if (jiraHierarchy && trackerAdapter) {
+              await jiraHierarchy.transitionForStatus(trackerAdapter, ctx.task_id, "COMPLETED");
+            }
+
+            // Slack notification with Confluence page link + @mentions for next agent
+            if (notifChannel) {
+              await notifChannel.publish({
+                event: "task_completed",
+                workflow_id: ctx.workflow_id,
+                task_id: ctx.task_id,
+                title: `Task completed: ${ctx.task_id}`,
+                body: `Workflow: ${ctx.workflow_id} | Status: COMPLETED`,
+                ...(pageUrl !== undefined && { artifact_url: pageUrl }),
+              }).catch(e => console.warn(`[ai-sdd:collab] task_completed notification failed for ${ctx.task_id}: ${String(e)}`));
+            }
+          });
+
+          // on_hil_requested: Slack notification with mentions to reviewers
+          engine.hooks.onHilRequested("*", async (ctx) => {
+            if (!notifChannel) return;
+            const hilId = ctx.extra?.["hil_id"] as string | undefined;
+            await notifChannel.publish({
+              event: "hil_requested",
+              workflow_id: ctx.workflow_id,
+              task_id: ctx.task_id,
+              title: `Human review required: ${ctx.task_id}`,
+              body: `HIL item: ${hilId ?? "unknown"}\nRun: ai-sdd hil list`,
+              mentions: ["reviewer"],
+            }).catch(e => console.warn(`[ai-sdd:collab] hil_requested notification failed for ${ctx.task_id}: ${String(e)}`));
+          });
+
+          // on_failure: Slack + Jira Blocked + save mappings
+          engine.hooks.onFailure("*", async (ctx) => {
+            if (jiraHierarchy && trackerAdapter) {
+              await jiraHierarchy.transitionForStatus(trackerAdapter, ctx.task_id, "FAILED");
+              await jiraHierarchy.saveMappings(jiraMappingsPath).catch(() => {});
+            }
+            if (!notifChannel) return;
+            await notifChannel.publish({
+              event: "task_failed",
+              workflow_id: ctx.workflow_id,
+              task_id: ctx.task_id,
+              title: `Task FAILED: ${ctx.task_id}`,
+              body: `Error: ${ctx.error?.message ?? "unknown"} | Workflow: ${ctx.workflow_id}`,
+            }).catch(e => console.warn(`[ai-sdd:collab] task_failed notification failed for ${ctx.task_id}: ${String(e)}`));
+          });
+
+          // on_workflow_end: Slack summary + Confluence workflow index + save all mappings
+          engine.hooks.onWorkflowEnd(async (ctx) => {
+            const extra = ctx.extra ?? {};
+            const completedCount = extra["completed"] as number ?? 0;
+            const failedCount = extra["failed"] as number ?? 0;
+
+            // Confluence workflow index
+            if (confluenceSyncMgr) {
+              const taskState = workflow.config.tasks;
+              const summaries = Object.keys(taskState).map(taskId => ({
+                taskId,
+                title: (taskState[taskId] as Record<string, unknown>)["description"] as string ?? taskId,
+                status: "COMPLETED",
+              }));
+              await confluenceSyncMgr.publishWorkflowIndex(ctx.workflow_id, summaries)
+                .catch(e => console.warn(`[ai-sdd:collab] Confluence index update failed: ${String(e)}`));
+              await confluenceSyncMgr.saveMappings(confluenceMappingsPath).catch(() => {});
+            }
+
+            // Save final Jira mappings
+            if (jiraHierarchy) {
+              await jiraHierarchy.saveMappings(jiraMappingsPath).catch(() => {});
+            }
+
+            if (!notifChannel) return;
+            await notifChannel.publish({
+              event: "workflow_completed",
+              workflow_id: ctx.workflow_id,
+              title: `Workflow complete: ${ctx.workflow_id}`,
+              body: `Completed: ${completedCount} | Failed: ${failedCount}`,
+            }).catch(e => console.warn(`[ai-sdd:collab] workflow_end notification failed: ${String(e)}`));
+          });
+
         }
       } else {
         console.debug(`[ai-sdd:collab] collaboration disabled or no adapters configured (enabled: ${String(collabConfig?.enabled)}, adapters: ${JSON.stringify(collabConfig?.adapters ?? null)})`);

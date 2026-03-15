@@ -347,7 +347,7 @@ export interface ProjectConfig {
       task_tracking?: "jira" | "github" | "mock";
       code_review?: "bitbucket" | "github" | "mock";
     };
-    slack?: { notify_channel?: string };
+    slack?: { notify_channel?: string; mentions?: Record<string, string[]> };
     confluence?: { space_key?: string; parent_page_title?: string };
     jira?: { project_key?: string };
     github?: { owner?: string; repo?: string; base_branch?: string };

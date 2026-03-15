@@ -1,0 +1,45 @@
+spec_hash: "6b54e28f8c7e952da88c75c31ea56815a13457d2001c0bbd993ce27a4e0e7e09"
+locked_at: "2026-03-15T00:00:00Z"
+requirements:
+  - id: FR-001
+    title: Job Aggregation
+    priority: MUST
+  - id: FR-002
+    title: Search and Discovery
+    priority: MUST
+  - id: FR-003
+    title: Notifications and Alerts
+    priority: MUST
+  - id: FR-004
+    title: Content and Preparation Resources
+    priority: SHOULD
+  - id: FR-005
+    title: Agency Reviews and Ratings
+    priority: SHOULD
+  - id: FR-006
+    title: Revenue and Monetisation
+    priority: SHOULD
+  - id: FR-007
+    title: User Accounts
+    priority: MUST
+  - id: FR-008
+    title: Admin CMS and Operations
+    priority: MUST
+  - id: NFR-001
+    title: Performance
+    priority: MUST
+  - id: NFR-002
+    title: Scalability
+    priority: MUST
+  - id: NFR-003
+    title: Reliability
+    priority: MUST
+  - id: NFR-004
+    title: Security and Privacy
+    priority: MUST
+  - id: NFR-005
+    title: Compliance
+    priority: MUST
+  - id: NFR-006
+    title: Observability
+    priority: MUST

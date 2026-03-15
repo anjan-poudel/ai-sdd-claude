@@ -124,13 +124,21 @@ function isLegacyLayout(projectPath: string): boolean {
 /**
  * Load and merge config: defaults → root .ai-sdd/ai-sdd.yaml → feature specs/<name>/.ai-sdd/ai-sdd.yaml
  */
+/**
+ * Expand ${ENV_VAR} placeholders in a YAML string using process.env.
+ * Unset variables are left as empty string "".
+ */
+function expandEnvVars(raw: string): string {
+  return raw.replace(/\$\{([^}]+)\}/g, (_, name: string) => process.env[name] ?? "");
+}
+
 function loadMergedConfig(projectPath: string, featureName?: string): ProjectConfig {
   let config = { ...DEFAULT_CONFIG };
 
   // Root config
   const rootConfigPath = join(projectPath, ".ai-sdd", "ai-sdd.yaml");
   if (existsSync(rootConfigPath)) {
-    const raw = readFileSync(rootConfigPath, "utf-8");
+    const raw = expandEnvVars(readFileSync(rootConfigPath, "utf-8"));
     const parsed = yaml.load(raw) as Partial<ProjectConfig> | null;
     if (parsed && typeof parsed === "object") {
       config = mergeConfig(config, parsed);
@@ -141,7 +149,7 @@ function loadMergedConfig(projectPath: string, featureName?: string): ProjectCon
   if (featureName) {
     const featureConfigPath = join(projectPath, "specs", featureName, ".ai-sdd", "ai-sdd.yaml");
     if (existsSync(featureConfigPath)) {
-      const raw = readFileSync(featureConfigPath, "utf-8");
+      const raw = expandEnvVars(readFileSync(featureConfigPath, "utf-8"));
       const parsed = yaml.load(raw) as Partial<ProjectConfig> | null;
       if (parsed && typeof parsed === "object") {
         config = mergeConfig(config, parsed);

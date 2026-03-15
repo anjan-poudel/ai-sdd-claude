@@ -133,6 +133,13 @@ export class Engine {
       dry_run: options.dry_run ?? false,
     });
 
+    // Workflow-start hook
+    await this.hooks.run("on_workflow_start", {
+      task_id: "*",
+      workflow_id: this.workflow.config.name,
+      run_id: this.runId,
+    });
+
     // Initialize state for all tasks
     const allTaskIds = this.workflow.execution_plan.all_tasks;
     this.stateManager.initializeTasks(allTaskIds);
@@ -216,6 +223,14 @@ export class Engine {
       tasks_completed: completed.length,
       tasks_failed: failed.length,
       total_cost_usd: totalCost,
+    });
+
+    // Workflow-end hook
+    await this.hooks.run("on_workflow_end", {
+      task_id: "*",
+      workflow_id: this.workflow.config.name,
+      run_id: this.runId,
+      extra: { completed: completed.length, failed: failed.length, total_cost_usd: totalCost },
     });
 
     return { completed, failed, skipped, total_cost_usd: totalCost, duration_ms: durationMs };
@@ -552,6 +567,14 @@ export class Engine {
         this.stateManager.transition(taskId, "RUNNING");
       }
       this.stateManager.incrementIteration(taskId);
+
+      // On-task-start hook (fires before overlays and dispatch)
+      await this.hooks.run("on_task_start", {
+        task_id: taskId,
+        workflow_id: this.workflow.config.name,
+        run_id: this.runId,
+        task_state: this.stateManager.getTaskState(taskId),
+      });
 
       this.emitter.emit("task.started", {
         task_id: taskId,
@@ -912,6 +935,14 @@ export class Engine {
           task_id: taskId,
           hil_id: hilId,
           feedback: decision.feedback,
+        });
+        // HIL-requested hook — fire and forget (don't block HIL resolution)
+        void this.hooks.run("on_hil_requested", {
+          task_id: taskId,
+          workflow_id: this.workflow.config.name,
+          run_id: this.runId,
+          task_state: this.stateManager.getTaskState(taskId),
+          extra: { hil_id: hilId, feedback: decision.feedback },
         });
         return "HIL_AWAITING";
       }

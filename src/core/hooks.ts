@@ -4,7 +4,7 @@
 
 import type { TaskState } from "../types/index.ts";
 
-export type HookEvent = "pre_task" | "post_task" | "on_failure" | "on_loop_exit";
+export type HookEvent = "pre_task" | "post_task" | "on_failure" | "on_loop_exit" | "on_task_start" | "on_workflow_start" | "on_workflow_end" | "on_hil_requested";
 
 export interface HookContext {
   task_id: string;
@@ -54,6 +54,26 @@ export class HookRegistry {
   /** Convenience: register an on-loop-exit hook. */
   onLoopExit(task_id: string, callback: HookCallback): void {
     this.register("on_loop_exit", task_id, callback);
+  }
+
+  /** Convenience: register an on-task-start hook (fires before overlay chain). */
+  onTaskStart(task_id: string, callback: HookCallback): void {
+    this.register("on_task_start", task_id, callback);
+  }
+
+  /** Convenience: register a workflow-start hook (fires once before first task). */
+  onWorkflowStart(callback: HookCallback): void {
+    this.register("on_workflow_start", "*", callback);
+  }
+
+  /** Convenience: register a workflow-end hook (fires after all tasks complete or fail). */
+  onWorkflowEnd(callback: HookCallback): void {
+    this.register("on_workflow_end", "*", callback);
+  }
+
+  /** Convenience: register a HIL-requested hook (fires when a task enters HIL_PENDING). */
+  onHilRequested(task_id: string, callback: HookCallback): void {
+    this.register("on_hil_requested", task_id, callback);
   }
 
   /**

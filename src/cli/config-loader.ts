@@ -11,6 +11,11 @@ import { DEFAULT_CONFIG, mergeConfig } from "../config/defaults.ts";
 import type { ProjectConfig } from "../types/index.ts";
 import { parseRemoteOverlayConfig, type ResolvedOverlayConfig } from "../config/remote-overlay-schema.ts";
 
+/** Expand ${ENV_VAR} placeholders in a YAML string using process.env. */
+function expandEnvVars(raw: string): string {
+  return raw.replace(/\$\{([^}]+)\}/g, (_, name: string) => process.env[name] ?? "");
+}
+
 const ProjectConfigSchema = z.object({
   version: z.string().optional(),
   workflow: z.string().optional(),
@@ -51,6 +56,22 @@ const ProjectConfigSchema = z.object({
   observability: z.object({
     log_level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
   }).optional(),
+  collaboration: z.object({
+    enabled: z.boolean().optional(),
+    adapters: z.object({
+      notification:  z.enum(["slack", "mock"]).optional(),
+      document:      z.enum(["confluence", "mock"]).optional(),
+      task_tracking: z.enum(["jira", "github", "mock"]).optional(),
+      code_review:   z.enum(["bitbucket", "github", "mock"]).optional(),
+    }).optional(),
+    slack:      z.object({
+      notify_channel: z.string().optional(),
+      mentions: z.record(z.array(z.string())).optional(),
+    }).optional(),
+    confluence: z.object({ space_key: z.string().optional(), parent_page_title: z.string().optional() }).optional(),
+    jira:       z.object({ project_key: z.string().optional() }).optional(),
+    github:     z.object({ owner: z.string().optional(), repo: z.string().optional(), base_branch: z.string().optional() }).optional(),
+  }).optional(),
 }).passthrough();
 
 export function loadProjectConfig(
@@ -62,7 +83,7 @@ export function loadProjectConfig(
   let projectConfig: Partial<ProjectConfig> = {};
 
   if (existsSync(configPath)) {
-    const raw = readFileSync(configPath, "utf-8");
+    const raw = expandEnvVars(readFileSync(configPath, "utf-8"));
     const parsed = yaml.load(raw) as unknown;
     const result = ProjectConfigSchema.safeParse(parsed);
     if (!result.success) {

@@ -357,6 +357,106 @@ describe("resolveSession — agents dirs", () => {
   });
 });
 
+// ─── resolveSession — collaboration config ───────────────────────────────────
+
+describe("resolveSession — collaboration config", () => {
+  const COLLAB_YAML = `version: "1"
+adapter:
+  type: claude_code
+collaboration:
+  enabled: true
+  adapters:
+    notification: slack
+    document: confluence
+    task_tracking: jira
+    code_review: github
+  slack:
+    notify_channel: "#govjobs-alerts"
+  confluence:
+    space_key: "GOVJ"
+    parent_page_title: "ai-sdd Artifacts"
+  jira:
+    project_key: "GOVJ"
+  github:
+    owner: "myorg"
+    repo: "govjobs"
+    base_branch: "main"
+`;
+
+  it("loads collaboration config from root .ai-sdd/ai-sdd.yaml", () => {
+    setupProject({ sessions: ["default"], rootConfig: COLLAB_YAML });
+    const session = resolveSession({ projectPath: TEST_DIR });
+
+    const collab = (session.config as Record<string, unknown>).collaboration as Record<string, unknown> | undefined;
+    expect(collab).toBeDefined();
+    expect((collab as Record<string, unknown>).enabled).toBe(true);
+    const adapters = (collab as Record<string, unknown>).adapters as Record<string, unknown>;
+    expect(adapters.notification).toBe("slack");
+    const slack = (collab as Record<string, unknown>).slack as Record<string, unknown>;
+    expect(slack.notify_channel).toBe("#govjobs-alerts");
+  });
+
+  it("loads collaboration config from feature .ai-sdd/ai-sdd.yaml", () => {
+    setupProject({
+      sessions: ["default", "my-feature"],
+      featureConfig: { name: "my-feature", config: COLLAB_YAML },
+    });
+    const session = resolveSession({ projectPath: TEST_DIR, featureName: "my-feature" });
+
+    const collab = (session.config as Record<string, unknown>).collaboration as Record<string, unknown> | undefined;
+    expect(collab).toBeDefined();
+    expect((collab as Record<string, unknown>).enabled).toBe(true);
+  });
+
+  it("expands ${ENV_VAR} placeholders in config values", () => {
+    process.env["TEST_SLACK_CHANNEL_COLLAB"] = "#expanded-channel";
+    const yamlWithEnvVar = `version: "1"
+collaboration:
+  enabled: true
+  adapters:
+    notification: slack
+  slack:
+    notify_channel: "\${TEST_SLACK_CHANNEL_COLLAB}"
+`;
+    setupProject({ sessions: ["default"], rootConfig: yamlWithEnvVar });
+    const session = resolveSession({ projectPath: TEST_DIR });
+
+    const collab = (session.config as Record<string, unknown>).collaboration as Record<string, unknown>;
+    const slack = collab.slack as Record<string, unknown>;
+    expect(slack.notify_channel).toBe("#expanded-channel");
+
+    delete process.env["TEST_SLACK_CHANNEL_COLLAB"];
+  });
+
+  it("expands undefined env vars to empty string", () => {
+    const yamlWithMissingVar = `version: "1"
+collaboration:
+  enabled: true
+  adapters:
+    notification: slack
+  slack:
+    notify_channel: "\${DEFINITELY_NOT_SET_VAR_XYZ}"
+`;
+    setupProject({ sessions: ["default"], rootConfig: yamlWithMissingVar });
+    const session = resolveSession({ projectPath: TEST_DIR });
+
+    const collab = (session.config as Record<string, unknown>).collaboration as Record<string, unknown>;
+    const slack = collab.slack as Record<string, unknown>;
+    expect(slack.notify_channel).toBe("");
+  });
+
+  it("collaboration absent from config when not in yaml", () => {
+    setupProject({
+      sessions: ["default"],
+      rootConfig: 'version: "1"\nadapter:\n  type: claude_code',
+    });
+    const session = resolveSession({ projectPath: TEST_DIR });
+
+    const collab = (session.config as Record<string, unknown>).collaboration;
+    expect(collab).toBeUndefined();
+  });
+});
+
 // ─── resolveSession — neither layout exists ──────────────────────────────────
 
 describe("resolveSession — fresh project", () => {

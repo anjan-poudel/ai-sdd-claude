@@ -1,0 +1,129 @@
+{
+  "schema_version": "1",
+  "workflow": "default-sdd",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/govt-jobs-portal",
+  "started_at": "2026-03-14T14:26:35.845Z",
+  "updated_at": "2026-03-15T10:36:52.289Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-14T14:26:35.900Z",
+      "completed_at": "2026-03-15T00:00:00.000Z",
+      "outputs": [
+        {
+          "path": "specs/define-requirements.md",
+          "contract": "requirements_doc"
+        },
+        {
+          "path": "specs/define-requirements.lock.yaml",
+          "contract": "requirements_lock"
+        }
+      ],
+      "iterations": 1,
+      "hil_item_id": "dff0c82f-f127-4d0b-abd2-58dd388e5cc2",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "dff0c82f-f127-4d0b-abd2-58dd388e5cc2"
+        }
+      }
+    },
+    "design-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T05:36:53.492Z",
+      "completed_at": "2026-03-15T06:00:00.000Z",
+      "outputs": [
+        {
+          "path": "specs/design-l1.md",
+          "contract": "architecture_l1"
+        }
+      ],
+      "iterations": 1,
+      "hil_item_id": "747c1424-747d-4735-aeb6-bfc9bc6f7103",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "747c1424-747d-4735-aeb6-bfc9bc6f7103"
+        }
+      }
+    },
+    "review-l1": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T05:45:32.546Z",
+      "completed_at": "2026-03-15T05:47:43.610Z",
+      "outputs": [
+        {
+          "path": "specs/review-l1.md"
+        }
+      ],
+      "iterations": 2,
+      "rework_feedback": "Gate failed (T0): No outputs produced",
+      "overlay_evidence": {
+        "overlay_id": "policy_gate",
+        "source": "local"
+      }
+    },
+    "design-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T06:00:00.000Z",
+      "completed_at": "2026-03-15T06:07:53.192Z",
+      "outputs": [
+        {
+          "path": "specs/design-l2.md"
+        }
+      ],
+      "iterations": 1,
+      "rework_feedback": "review-l2 returned NO_GO: B1 FCM push token storage missing; A1 email verification token should use SHA-256 not bcrypt; A2 RobotsChecker.isAllowed() return type; A3 deletion-queue should run in dedicated worker; A4 alerts compound index missing"
+    },
+    "review-l2": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T06:16:32.429997+00:00",
+      "completed_at": "2026-03-15T06:16:38.935Z",
+      "outputs": [
+        {
+          "path": "specs/review-l2.md"
+        }
+      ],
+      "iterations": 0
+    },
+    "plan-tasks": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T10:34:31.993Z",
+      "completed_at": "2026-03-15T10:36:52.289Z",
+      "outputs": [
+        {
+          "path": "specs/plan-tasks/plan.md"
+        }
+      ],
+      "iterations": 2,
+      "rework_feedback": "Gate failed (T0): No outputs produced",
+      "overlay_evidence": {
+        "overlay_id": "policy_gate",
+        "source": "local"
+      }
+    },
+    "implement": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T10:40:00.000Z",
+      "completed_at": "2026-03-15T10:56:00.000Z",
+      "outputs": [{ "path": "specs/task-breakdown-l3/plan.md", "contract": "task_breakdown_l3" }],
+      "iterations": 1
+    },
+    "review-implementation": {
+      "status": "COMPLETED",
+      "started_at": "2026-03-15T11:00:00.000Z",
+      "completed_at": "2026-03-15T11:05:00.000Z",
+      "outputs": [{ "path": "specs/review-implementation.md", "contract": "review_report" }],
+      "iterations": 1
+    },
+    "final-sign-off": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    }
+  }
+}

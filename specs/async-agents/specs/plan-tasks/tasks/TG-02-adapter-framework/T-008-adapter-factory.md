@@ -24,6 +24,18 @@ Feature: CollaborationAdapterFactory
     Then a SlackNotificationAdapter instance is returned
     And subsequent calls return the same cached instance
 
+  Scenario: Factory returns NotificationChannel wrapping the adapter
+    Given config has adapters.notification = "slack"
+    And a mentionConfig with role "pe" mapped to ["U01234567"]
+    When getNotificationChannel("#ai-sdd", mentionConfig) is called
+    Then a SlackNotificationChannel wrapping the SlackNotificationAdapter is returned
+    And the channel has the mentionConfig attached for @mention resolution
+
+  Scenario: getNotificationChannel returns MockNotificationChannel for mock config
+    Given config has adapters.notification = "mock"
+    When getNotificationChannel is called
+    Then a MockNotificationChannel is returned without env var checks
+
   Scenario: Missing env var fails fast with descriptive error
     Given SLACK_BOT_TOKEN is not set
     When the factory is created with adapters.notification = "slack"
@@ -42,9 +54,11 @@ Feature: CollaborationAdapterFactory
 - Register all env var values with `src/security/log-sanitizer.ts` on adapter creation
 - Adapters are singletons per factory instance; factory created once per engine run
 - Factory must be created after config parsing (needs resolved adapter types)
+- `getNotificationChannel(channel, mentionConfig)` is the preferred call site for all activity notifications; it creates a new `SlackNotificationChannel` (or `MockNotificationChannel`) wrapping the cached `NotificationAdapter`
 
 ## Definition of done
-- [ ] Code reviewed and merged
-- [ ] All Gherkin scenarios covered by automated tests
-- [ ] No credentials logged (verified by log-sanitizer registration test)
-- [ ] Integration test: factory wired into engine run lifecycle
+- [x] Code reviewed and merged
+- [x] All Gherkin scenarios covered by automated tests
+- [x] No credentials logged (verified by log-sanitizer registration test)
+- [x] Integration test: factory wired into engine run lifecycle
+- [x] `getNotificationChannel` method added and tested

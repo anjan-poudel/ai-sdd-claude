@@ -4,8 +4,9 @@
  * Credentials are registered with log-sanitizer on instantiation.
  */
 
-import type { Result, CollaborationAdaptersConfig, AdapterError } from "../types.ts";
+import type { Result, CollaborationAdaptersConfig, AdapterError, MentionConfig } from "../types.ts";
 import type { NotificationAdapter } from "../adapters/notification-adapter.ts";
+import type { NotificationChannel } from "../adapters/notification-channel.ts";
 import type { DocumentAdapter } from "../adapters/document-adapter.ts";
 import type { TaskTrackingAdapter } from "../adapters/task-tracking-adapter.ts";
 import type { CodeReviewAdapter } from "../adapters/code-review-adapter.ts";
@@ -22,6 +23,7 @@ const REQUIRED_ENV_VARS: Record<string, string[]> = {
 
 export interface CollaborationAdapterFactory {
   getNotificationAdapter(): NotificationAdapter;
+  getNotificationChannel(channel: string, mentionConfig?: MentionConfig): NotificationChannel;
   getDocumentAdapter(): DocumentAdapter;
   getTaskTrackingAdapter(): TaskTrackingAdapter;
   getCodeReviewAdapter(): CodeReviewAdapter;
@@ -65,6 +67,20 @@ export class DefaultCollaborationAdapterFactory implements CollaborationAdapterF
   private codeReviewAdapter?: CodeReviewAdapter;
 
   constructor(private readonly config: CollaborationAdaptersConfig) {}
+
+  getNotificationChannel(channel: string, mentionConfig: MentionConfig = {}): NotificationChannel {
+    const adapter = this.getNotificationAdapter();
+    if (this.config.notification === "slack") {
+      const { SlackNotificationChannel } = require("../impl/slack-notification-channel.ts") as {
+        SlackNotificationChannel: new (adapter: NotificationAdapter, channel: string, mentionConfig: MentionConfig) => NotificationChannel;
+      };
+      return new SlackNotificationChannel(adapter, channel, mentionConfig);
+    }
+    const { MockNotificationChannel } = require("../impl/mock-notification-channel.ts") as {
+      MockNotificationChannel: new () => NotificationChannel;
+    };
+    return new MockNotificationChannel();
+  }
 
   getNotificationAdapter(): NotificationAdapter {
     if (!this.notificationAdapter) {

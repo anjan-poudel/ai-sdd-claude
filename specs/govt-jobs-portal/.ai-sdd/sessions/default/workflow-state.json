@@ -1,0 +1,80 @@
+{
+  "schema_version": "1",
+  "workflow": "atlassian-github-quickstart",
+  "project": "/Users/anjan/workspace/projects/ai/ai-sdd/ai-sdd-claude/specs/govt-jobs-portal",
+  "started_at": "2026-03-14T14:18:24.749Z",
+  "updated_at": "2026-03-14T14:19:29.301Z",
+  "tasks": {
+    "define-requirements": {
+      "status": "HIL_PENDING",
+      "started_at": "2026-03-14T14:19:29.295Z",
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 1,
+      "hil_item_id": "8441725d-418e-4813-8ed1-33d3a51dab18",
+      "overlay_evidence": {
+        "overlay_id": "hil",
+        "source": "local",
+        "data": {
+          "hil_id": "8441725d-418e-4813-8ed1-33d3a51dab18"
+        }
+      }
+    },
+    "design-l1": {
+      "status": "RUNNING",
+      "started_at": "2026-03-15T05:38:26.227198Z",
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-l1": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "design-l2": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-l2": {
+      "status": "RUNNING",
+      "started_at": "2026-03-15T06:16:16.139981Z",
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "plan-tasks": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "implement": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "review-implementation": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    },
+    "final-sign-off": {
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "outputs": [],
+      "iterations": 0
+    }
+  }
+}

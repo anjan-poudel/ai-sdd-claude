@@ -48,7 +48,18 @@ Feature: AsCodeSyncEngine hash-based sync
 - Emit `collab.sync.completed` event with SyncReport
 
 ## Definition of done
-- [ ] Code reviewed and merged
-- [ ] All Gherkin scenarios covered by automated tests
-- [ ] Mapping file atomically written (no partial writes)
-- [ ] Works with both MockTaskTrackingAdapter and JiraTaskTrackingAdapter
+- [x] Code reviewed and merged
+- [x] All Gherkin scenarios covered by automated tests
+- [x] Mapping file atomically written (no partial writes)
+- [x] Works with both MockTaskTrackingAdapter and JiraTaskTrackingAdapter
+
+## Note: JiraHierarchySync
+
+`AsCodeSyncEngine` implements flat hash-based sync (one issue per task, no Epic hierarchy). The **`JiraHierarchySync`** component (`src/collaboration/core/jira-hierarchy-sync.ts`) sits above it and adds Epic/Story/Subtask hierarchy management:
+
+- 1 Epic per workflow (idempotent `ensureEpic`)
+- Top-level tasks → Stories under the Epic
+- Group-member tasks → Subtasks under their Story
+- `transitionForStatus(adapter, taskId, taskStatus)` maps all `TaskStatus` values to Jira status names via `DEFAULT_STATUS_MAP` and calls `adapter.transitionTask`
+
+`JiraHierarchySync` is wired in `run.ts` and operates alongside (not replacing) `AsCodeSyncEngine` for the status-transition use case during live workflow execution. See component #22 in `design-l2.md`.
