@@ -148,7 +148,7 @@ describe("Confluence (live)", () => {
       env("CONFLUENCE_USER_EMAIL"),
       env("CONFLUENCE_BASE_URL"),
     );
-    const space = env("CONFLUENCE_SPACE_KEY");
+    const space = hasEnv("CONFLUENCE_SPACE_KEY_TEST")?env("CONFLUENCE_SPACE_KEY_TEST"):env("CONFLUENCE_SPACE_KEY");
 
     // Create
     const createResult = await adapter.createPage(
